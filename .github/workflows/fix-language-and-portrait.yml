@@ -1,4 +1,4 @@
-# Pages refresh after approved portrait replacement
+# Publish the approved original portrait with integrity verification
 name: Fix portfolio language isolation and portrait
 
 on:
@@ -18,21 +18,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply approved portrait image
+      - name: Restore approved original portrait
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           mkdir -p assets
-          gh api repos/${{ github.repository }}/git/blobs/dca44423b2f02ab41e558730923bdd1e0f0d1306 --jq '.content' | tr -d '\n' | base64 -d > assets/portrait.jpg
-          file assets/portrait.jpg
+          gh api repos/${{ github.repository }}/git/blobs/0852aaf3f8a1d18e9956a95b39a4bc1723305c50 --jq '.content' | tr -d '\n' | base64 -d > assets/portrait.jpg
           test -s assets/portrait.jpg
+          file assets/portrait.jpg
+          ACTUAL=$(sha256sum assets/portrait.jpg | awk '{print $1}')
+          EXPECTED='182a8d508038524ca1648d4207b49675ab526623a6907dfb404b4e4c65e333c0'
+          echo "portrait sha256: $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
 
-      - name: Verify portfolio language isolation
+      - name: Verify portfolio safeguards
         run: |
           python - <<'PY'
           from pathlib import Path
-          p = Path('index.html')
-          s = p.read_text(encoding='utf-8')
+          s = Path('index.html').read_text(encoding='utf-8')
           required = [
               'html[lang="en"] .ar{display:none!important}',
               'html[lang="ar"] .en{display:none!important}',
@@ -43,14 +47,14 @@ jobs:
               raise SystemExit('Missing required portfolio safeguards: ' + ', '.join(missing))
           PY
 
-      - name: Commit approved portrait
+      - name: Commit verified original portrait
         run: |
-          if git diff --quiet; then
-            echo "No changes required"
+          if git diff --quiet -- assets/portrait.jpg; then
+            echo "Portrait already matches approved original"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add assets/portrait.jpg
-          git commit -m "fix: replace portrait with approved uploaded image"
+          git commit -m "fix: restore approved original portrait at full quality"
           git push

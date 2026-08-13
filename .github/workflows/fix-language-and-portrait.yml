@@ -1,4 +1,4 @@
-# Restore the full-quality approved portrait directly from repository history
+# Restore the clean portrait asset from the original portfolio branch
 name: Fix portfolio language isolation and portrait
 
 on:
@@ -18,44 +18,46 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore full-quality portrait from Git blob
+      - name: Restore clean portrait WebP from Git blob
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p assets
-          EXPECTED_BLOB='732e308023ed5b5e63c4a61683bfe643fcad35b4'
-          gh api repos/${{ github.repository }}/git/blobs/$EXPECTED_BLOB --jq '.content' | tr -d '\n' | base64 -d > assets/portrait.jpg
-          test -s assets/portrait.jpg
-          file assets/portrait.jpg
-          test "$(stat -c%s assets/portrait.jpg)" = '147734'
-          ACTUAL_BLOB=$(git hash-object assets/portrait.jpg)
+          EXPECTED_BLOB='3656609fcedf6801c71405b72d03589b8fafbedc'
+          gh api repos/${{ github.repository }}/git/blobs/$EXPECTED_BLOB --jq '.content' | tr -d '\n' | base64 -d > assets/portrait.webp
+          test -s assets/portrait.webp
+          file assets/portrait.webp
+          ACTUAL_BLOB=$(git hash-object assets/portrait.webp)
           echo "portrait git blob: $ACTUAL_BLOB"
           test "$ACTUAL_BLOB" = "$EXPECTED_BLOB"
 
-      - name: Verify portfolio safeguards
+      - name: Point portfolio to clean portrait and verify language isolation
         run: |
           python - <<'PY'
           from pathlib import Path
-          s = Path('index.html').read_text(encoding='utf-8')
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('src="assets/portrait.jpg"', 'src="assets/portrait.webp"')
           required = [
               'html[lang="en"] .ar{display:none!important}',
               'html[lang="ar"] .en{display:none!important}',
-              'src="assets/portrait.jpg"'
+              'src="assets/portrait.webp"'
           ]
           missing = [item for item in required if item not in s]
           if missing:
               raise SystemExit('Missing required portfolio safeguards: ' + ', '.join(missing))
+          p.write_text(s, encoding='utf-8')
           PY
 
-      - name: Commit verified full-quality portrait
+      - name: Commit clean portrait and HTML reference
         run: |
-          if git diff --quiet -- assets/portrait.jpg; then
-            echo "Portrait already matches the full-quality historical asset"
+          if git diff --quiet -- assets/portrait.webp index.html; then
+            echo "Clean portrait already active"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets/portrait.jpg
-          git commit -m "fix: restore full-quality approved portrait"
+          git add assets/portrait.webp index.html
+          git commit -m "fix: use clean portrait asset"
           git push

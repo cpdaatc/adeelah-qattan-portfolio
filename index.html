@@ -33,6 +33,14 @@
     @media(max-width:650px){nav{height:68px}html{scroll-padding-top:75px}.brand{font-size:1.13rem}.nav-actions .print-top{display:none}.mobile-panel{inset:68px 0 0}.hero{padding-top:105px}.hero h1{font-size:clamp(3rem,17vw,4.7rem)}.portrait-shell{width:min(300px,78vw)}.portrait-note{right:-8px;bottom:0;max-width:180px;padding:13px}.section{padding:78px 0}.section-head{display:block}.section-head p{margin-top:18px}.signature-stats{grid-template-columns:1fr}.impact-row{grid-template-columns:1fr;gap:6px}.career summary{grid-template-columns:1fr 32px;gap:6px}.career summary time{grid-column:1/-1}.career-body,html[dir="rtl"] .career-body{padding:0 0 24px}.governance-grid,.credentials-grid,.references-grid{grid-template-columns:1fr}.recognition{grid-template-columns:65px 1fr}.footer-bottom{display:block}.contact-row{display:grid;justify-items:start}.royal{padding:75px 0}.royal-mark{width:145px;height:145px}.royal-copy h2{font-size:3.7rem}.hero-actions .btn{flex:1}.kicker{letter-spacing:.13em}}
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
     @media print{@page{size:A4;margin:11mm}nav,.progress,.mobile-panel,.hero-actions,.activities-tabs,.portrait-ring,.portrait-note,.no-print{display:none!important}body{background:#fff;color:#111;font-size:9.3pt;-webkit-print-color-adjust:exact;print-color-adjust:exact}.container{width:100%;max-width:none}.hero{min-height:auto;padding:0 0 10mm;background:#fff}.hero-grid{grid-template-columns:1.35fr .65fr;gap:9mm}.hero h1{font-size:34pt}.portrait-shell{width:48mm}.portrait-frame{width:100%;height:100%;box-shadow:none;border:1px solid #ddd}.role-stack{margin:5mm 0 3mm}.royal{padding:8mm 0;page-break-inside:avoid}.royal-grid{grid-template-columns:30mm 1fr;gap:7mm;text-align:left}.royal-mark{width:26mm;height:26mm}.royal-copy h2{font-size:28pt}.royal-copy p{font-size:8.5pt;margin:2mm 0}.royal-meta{display:none}.section{padding:8mm 0}.section-head{margin-bottom:5mm}.section-head h2{font-size:24pt}.section-head p{display:none}.profile-grid{gap:8mm}.lead-copy{font-size:18pt}.body-copy{font-size:8.5pt}.impact-list{margin-top:5mm}.impact-row{padding:2.5mm 0}.signature-stats{margin-top:4mm}.stat{padding:4mm;min-height:auto}.career details{break-inside:avoid}.career summary{padding:3.5mm 0}.career-body{display:block!important;padding:0 0 4mm 30mm!important;font-size:8.3pt}.plus{display:none}.governance-grid,.credentials-grid{gap:3mm}.gov-col,.credential{padding:4mm;break-inside:avoid}.activity-panel{display:grid!important}.activity-panel:not(.active){display:none!important}.references-grid{gap:3mm}footer{padding:7mm 0;background:#101C20;break-before:page}.reveal{opacity:1!important;transform:none!important}}
+  
+    /* LANGUAGE-ISOLATION-FIX */
+    html[lang="en"] .ar{display:none!important}
+    html[lang="ar"] .en{display:none!important}
+    html[lang="ar"] .ar{display:revert!important}
+    html[lang="ar"] ul.ar{display:grid!important}
+    html[lang="ar"] .block.ar{display:block!important}
+    html[lang="ar"] .inline.ar{display:inline!important}
   </style>
 </head>
 <body>
@@ -85,7 +93,7 @@
       <div class="hero-visual reveal">
         <div class="portrait-shell">
           <div class="portrait-ring"></div>
-          <div class="portrait-frame"><img src="assets/portrait.svg" alt="Portrait of Dr. Adeelah Talat Qattan"></div>
+          <div class="portrait-frame"><img src="assets/portrait.jpg" alt="Portrait of Dr. Adeelah Talat Qattan"></div>
           <div class="portrait-note"><small>ROYAL HONOUR · 2019</small><b>King Fahd Medal<br>Third Degree</b></div>
         </div>
       </div>

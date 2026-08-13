@@ -1,4 +1,4 @@
-# Restore the clean portrait asset from the original portfolio branch
+# Keep the approved portrait active and configure social link previews
 name: Fix portfolio language isolation and portrait
 
 on:
@@ -32,17 +32,50 @@ jobs:
           echo "portrait git blob: $ACTUAL_BLOB"
           test "$ACTUAL_BLOB" = "$EXPECTED_BLOB"
 
-      - name: Point portfolio to clean portrait and verify language isolation
+      - name: Configure portrait, language isolation and social preview
         run: |
           python - <<'PY'
           from pathlib import Path
           p = Path('index.html')
           s = p.read_text(encoding='utf-8')
           s = s.replace('src="assets/portrait.jpg"', 'src="assets/portrait.webp"')
+
+          start = '  <!-- SOCIAL_PREVIEW_START -->'
+          end = '  <!-- SOCIAL_PREVIEW_END -->'
+          if start in s and end in s:
+              before, rest = s.split(start, 1)
+              _, after = rest.split(end, 1)
+              s = before + after
+
+          social = '''  <!-- SOCIAL_PREVIEW_START -->
+  <link rel="canonical" href="https://cpdaatc.github.io/adeelah-qattan-portfolio/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Dr. Adeelah Talat Qattan — Executive Healthcare Portfolio">
+  <meta property="og:title" content="Dr. Adeelah Talat Qattan — Executive Healthcare Portfolio">
+  <meta property="og:description" content="Consultant in Restorative Dentistry, Assistant Hospital Director for Academic Affairs, and Director of Medical Education and Training.">
+  <meta property="og:url" content="https://cpdaatc.github.io/adeelah-qattan-portfolio/">
+  <meta property="og:image" content="https://cpdaatc.github.io/adeelah-qattan-portfolio/assets/portrait.webp?v=20260813">
+  <meta property="og:image:secure_url" content="https://cpdaatc.github.io/adeelah-qattan-portfolio/assets/portrait.webp?v=20260813">
+  <meta property="og:image:type" content="image/webp">
+  <meta property="og:image:alt" content="Portrait of Dr. Adeelah Talat Qattan">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Dr. Adeelah Talat Qattan — Executive Healthcare Portfolio">
+  <meta name="twitter:description" content="Consultant in Restorative Dentistry, Assistant Hospital Director for Academic Affairs, and Director of Medical Education and Training.">
+  <meta name="twitter:image" content="https://cpdaatc.github.io/adeelah-qattan-portfolio/assets/portrait.webp?v=20260813">
+  <meta name="twitter:image:alt" content="Portrait of Dr. Adeelah Talat Qattan">
+  <!-- SOCIAL_PREVIEW_END -->'''
+
+          anchor = '  <title>Dr. Adeelah Talat Qattan — Executive Healthcare Portfolio</title>'
+          if anchor not in s:
+              raise SystemExit('Portfolio title anchor not found')
+          s = s.replace(anchor, anchor + '\n' + social, 1)
+
           required = [
               'html[lang="en"] .ar{display:none!important}',
               'html[lang="ar"] .en{display:none!important}',
-              'src="assets/portrait.webp"'
+              'src="assets/portrait.webp"',
+              'property="og:image" content="https://cpdaatc.github.io/adeelah-qattan-portfolio/assets/portrait.webp?v=20260813"',
+              'name="twitter:image" content="https://cpdaatc.github.io/adeelah-qattan-portfolio/assets/portrait.webp?v=20260813"'
           ]
           missing = [item for item in required if item not in s]
           if missing:
@@ -50,14 +83,14 @@ jobs:
           p.write_text(s, encoding='utf-8')
           PY
 
-      - name: Commit clean portrait and HTML reference
+      - name: Commit portfolio sharing preview
         run: |
           if git diff --quiet -- assets/portrait.webp index.html; then
-            echo "Clean portrait already active"
+            echo "Portfolio social preview already configured"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add assets/portrait.webp index.html
-          git commit -m "fix: use clean portrait asset"
+          git commit -m "feat: show Adeelah portrait in shared link preview"
           git push

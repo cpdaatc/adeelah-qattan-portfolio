@@ -1,0 +1,47 @@
+name: Fix portfolio language isolation and portrait
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-language-and-portrait.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch portfolio HTML
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+
+          # 1) Hard language isolation: Arabic must never leak into English mode,
+          #    and English must never remain visible in Arabic mode.
+          marker = '/* LANGUAGE-ISOLATION-FIX */'
+          fix = '''\n    /* LANGUAGE-ISOLATION-FIX */\n    html[lang="en"] .ar{display:none!important}\n    html[lang="ar"] .en{display:none!important}\n    html[lang="ar"] .ar{display:revert!important}\n    html[lang="ar"] ul.ar{display:grid!important}\n    html[lang="ar"] .block.ar{display:block!important}\n    html[lang="ar"] .inline.ar{display:inline!important}\n'''
+          if marker not in s:
+              s = s.replace('</style>', fix + '  </style>', 1)
+
+          # 2) Safari-safe portrait rendering: point directly to supplied JPEG.
+          s = s.replace('src="assets/portrait.svg"', 'src="assets/portrait.jpg"')
+
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then
+            echo "No changes required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "fix: isolate languages and render portrait directly"
+          git push

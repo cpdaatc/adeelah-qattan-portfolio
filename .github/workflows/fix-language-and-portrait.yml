@@ -1,4 +1,4 @@
-# Publish the approved original portrait with integrity verification
+# Restore the full-quality approved portrait directly from repository history
 name: Fix portfolio language isolation and portrait
 
 on:
@@ -18,19 +18,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore approved original portrait
+      - name: Restore full-quality portrait from Git blob
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p assets
-          gh api repos/${{ github.repository }}/git/blobs/0852aaf3f8a1d18e9956a95b39a4bc1723305c50 --jq '.content' | tr -d '\n' | base64 -d > assets/portrait.jpg
+          EXPECTED_BLOB='732e308023ed5b5e63c4a61683bfe643fcad35b4'
+          gh api repos/${{ github.repository }}/git/blobs/$EXPECTED_BLOB --jq '.content' | tr -d '\n' | base64 -d > assets/portrait.jpg
           test -s assets/portrait.jpg
           file assets/portrait.jpg
-          ACTUAL=$(sha256sum assets/portrait.jpg | awk '{print $1}')
-          EXPECTED='182a8d508038524ca1648d4207b49675ab526623a6907dfb404b4e4c65e333c0'
-          echo "portrait sha256: $ACTUAL"
-          test "$ACTUAL" = "$EXPECTED"
+          test "$(stat -c%s assets/portrait.jpg)" = '147734'
+          ACTUAL_BLOB=$(git hash-object assets/portrait.jpg)
+          echo "portrait git blob: $ACTUAL_BLOB"
+          test "$ACTUAL_BLOB" = "$EXPECTED_BLOB"
 
       - name: Verify portfolio safeguards
         run: |
@@ -47,14 +48,14 @@ jobs:
               raise SystemExit('Missing required portfolio safeguards: ' + ', '.join(missing))
           PY
 
-      - name: Commit verified original portrait
+      - name: Commit verified full-quality portrait
         run: |
           if git diff --quiet -- assets/portrait.jpg; then
-            echo "Portrait already matches approved original"
+            echo "Portrait already matches the full-quality historical asset"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add assets/portrait.jpg
-          git commit -m "fix: restore approved original portrait at full quality"
+          git commit -m "fix: restore full-quality approved portrait"
           git push

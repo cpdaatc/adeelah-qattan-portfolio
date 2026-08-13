@@ -14,27 +14,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Patch portfolio HTML
+        with:
+          fetch-depth: 0
+
+      - name: Apply approved portrait image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p assets
+          gh api repos/${{ github.repository }}/git/blobs/dca44423b2f02ab41e558730923bdd1e0f0d1306 --jq '.content' | tr -d '\n' | base64 -d > assets/portrait.jpg
+          file assets/portrait.jpg
+          test -s assets/portrait.jpg
+
+      - name: Verify portfolio language isolation
         run: |
           python - <<'PY'
           from pathlib import Path
           p = Path('index.html')
           s = p.read_text(encoding='utf-8')
-
-          # 1) Hard language isolation: Arabic must never leak into English mode,
-          #    and English must never remain visible in Arabic mode.
-          marker = '/* LANGUAGE-ISOLATION-FIX */'
-          fix = '''\n    /* LANGUAGE-ISOLATION-FIX */\n    html[lang="en"] .ar{display:none!important}\n    html[lang="ar"] .en{display:none!important}\n    html[lang="ar"] .ar{display:revert!important}\n    html[lang="ar"] ul.ar{display:grid!important}\n    html[lang="ar"] .block.ar{display:block!important}\n    html[lang="ar"] .inline.ar{display:inline!important}\n'''
-          if marker not in s:
-              s = s.replace('</style>', fix + '  </style>', 1)
-
-          # 2) Safari-safe portrait rendering: point directly to supplied JPEG.
-          s = s.replace('src="assets/portrait.svg"', 'src="assets/portrait.jpg"')
-
-          p.write_text(s, encoding='utf-8')
+          required = [
+              'html[lang="en"] .ar{display:none!important}',
+              'html[lang="ar"] .en{display:none!important}',
+              'src="assets/portrait.jpg"'
+          ]
+          missing = [item for item in required if item not in s]
+          if missing:
+              raise SystemExit('Missing required portfolio safeguards: ' + ', '.join(missing))
           PY
 
-      - name: Commit patch
+      - name: Commit approved portrait
         run: |
           if git diff --quiet; then
             echo "No changes required"
@@ -42,6 +50,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          git commit -m "fix: isolate languages and render portrait directly"
+          git add assets/portrait.jpg
+          git commit -m "fix: replace portrait with approved uploaded image"
           git push

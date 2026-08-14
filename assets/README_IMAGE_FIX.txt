@@ -1,0 +1,1 @@
+Image asset remediation marker. The final portrait and King Fahd Medal certificate are sourced from the user-provided originals and must not be regenerated or replaced by temporary workflow assets.

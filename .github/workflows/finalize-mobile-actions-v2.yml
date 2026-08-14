@@ -1,0 +1,40 @@
+name: Finalize mobile actions v2
+
+on:
+  push:
+    paths:
+      - '.github/workflows/finalize-mobile-actions-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply action buttons
+        run: |
+          python -c 'from pathlib import Path; import re; p=Path("index.html"); t=p.read_text(encoding="utf-8"); t=t.replace("<a href=\"#royal\" class=\"btn btn-primary\"><span class=\"en\">View Royal Honour</span><span class=\"ar\">عرض التكريم الملكي</span></a>","<a href=\"#royal\" class=\"btn btn-primary\"><span class=\"action-icon\" aria-hidden=\"true\">🏅</span><span class=\"en\">View Royal Honour</span><span class=\"ar\">عرض التكريم الملكي</span></a>"); pattern=r"<div class=\"sidebar-downloads\">.*?</div>\n  </div>\n\n  <header class=\"hero\""; repl="<div class=\"sidebar-downloads\">\n      <a class=\"btn btn-primary resource-download\" href=\"#royal\"><span class=\"action-icon\" aria-hidden=\"true\">🏅</span><span class=\"en\">View Royal Honour</span><span class=\"ar\">عرض التكريم الملكي</span></a>\n      <a class=\"btn btn-primary resource-download\" href=\"assets/portrait.webp?v=20260814-10\" download=\"Dr_Adeelah_Qattan_Portrait.webp\"><span class=\"action-icon\" aria-hidden=\"true\">🖼️</span><span class=\"en\">Download Personal Photo</span><span class=\"ar\">تحميل الصورة الشخصية</span></a>\n      <a class=\"btn btn-primary resource-download\" href=\"assets/Dr_Adeelah_Qattan_Speaker_Bio_Bilingual.pdf?v=20260814-10\" download><span class=\"action-icon\" aria-hidden=\"true\">📄</span><span class=\"en\">Download Speaker Bio (PDF)</span><span class=\"ar\">تحميل النبذة التعريفية (PDF)</span></a>\n      <a class=\"btn btn-primary resource-download\" href=\"assets/Dr_Adeelah_Qattan_CV_2026.pdf?v=20260814-10\" download><span class=\"action-icon\" aria-hidden=\"true\">📘</span><span class=\"en\">Download CV (PDF)</span><span class=\"ar\">تحميل السيرة الذاتية (PDF)</span></a>\n    </div>\n  </div>\n\n  <header class=\"hero\""; t,n=re.subn(pattern,repl,t,count=1,flags=re.S); assert n==1; t=t.replace(".sidebar-downloads .action-icon{font-size:1.05rem;line-height:1}",".sidebar-downloads .action-icon{font-size:1.05rem;line-height:1}.hero-actions .action-icon{font-size:1.05rem;line-height:1}") if ".hero-actions .action-icon{" not in t else t; p.write_text(t,encoding="utf-8")'
+      - name: Verify
+        run: |
+          grep -q '🏅' index.html
+          grep -q '🖼️' index.html
+          grep -q '📄' index.html
+          grep -q '📘' index.html
+          grep -q 'assets/portrait.webp?v=20260814-10' index.html
+          grep -q 'Conference Committee Chair' index.html
+          grep -q 'رئيسة لجنة المؤتمر' index.html
+          grep -q 'atqattan@hotmail.com' index.html
+          grep -q 'adeelahqattan@gmail.com' index.html
+          echo 'verified'
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'fix: unify mobile actions and working photo download'
+          git push origin HEAD:main

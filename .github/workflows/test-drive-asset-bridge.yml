@@ -1,0 +1,30 @@
+name: Test Drive asset bridge
+on:
+  push:
+    paths:
+      - '.github/workflows/test-drive-asset-bridge.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download uploaded portrait and certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 2 'https://drive.usercontent.google.com/download?id=1F-lq3WbOT9QmXsHVF8OZ8_XgGgiN9Uil&export=download&confirm=t' -o portrait.jpg
+          curl -fL --retry 2 'https://drive.usercontent.google.com/download?id=1VJQB3J_XkKmBS3Gewt-xA08odPbU5Vlz&export=download&confirm=t' -o certificate.jpg
+          file portrait.jpg certificate.jpg
+          test "$(wc -c < portrait.jpg)" -gt 50000
+          test "$(wc -c < certificate.jpg)" -gt 50000
+      - name: Validate image dimensions with Pillow
+        run: |
+          python3 - <<'PY'
+          from PIL import Image
+          for p,expected in [('portrait.jpg',(800,800)),('certificate.jpg',(800,1024))]:
+              im=Image.open(p); im.verify()
+              im=Image.open(p)
+              print(p,im.size,im.mode)
+              assert im.size == expected, (p,im.size,expected)
+          PY

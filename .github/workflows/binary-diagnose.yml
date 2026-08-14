@@ -1,0 +1,31 @@
+name: Binary asset diagnose
+on:
+  push:
+    branches: [canonical-mobile-qa]
+    paths: ['.github/workflows/binary-diagnose.yml']
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hash current portrait ranges
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=assets/Dr_Adeelah_Qattan_Portrait_Original.jpg
+          wc -c "$f"
+          sha256sum "$f"
+          for n in 10000 50000 100000 120000 140000 147734; do
+            head -c "$n" "$f" | sha256sum | sed "s#  -# first-$n#"
+          done
+          tail -c 16 "$f" | xxd -p
+          file "$f"
+          python - <<'PY'
+          from PIL import Image
+          p='assets/Dr_Adeelah_Qattan_Portrait_Original.jpg'
+          try:
+            im=Image.open(p); print('size',im.size,'mode',im.mode); im.load(); print('PIL_LOAD_OK')
+          except Exception as e: print('PIL_FAIL',repr(e))
+          PY

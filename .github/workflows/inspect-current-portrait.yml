@@ -10,15 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          python - <<'PY'
-          from PIL import Image,ImageFile
-          ImageFile.LOAD_TRUNCATED_IMAGES=False
-          p='assets/portrait.jpg'
-          im=Image.open(p); print(im.size, im.mode); im.verify()
-          im=Image.open(p).convert('RGB'); im.save('portrait-current.png')
-          PY
+      - name: Install imaging tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+      - name: Verify and render
+        run: |
+          set -euo pipefail
+          identify assets/portrait.jpg
+          convert assets/portrait.jpg portrait-current.png
+          identify portrait-current.png
       - uses: actions/upload-artifact@v4
         with:
           name: current-portrait-png
           path: portrait-current.png
+          if-no-files-found: error

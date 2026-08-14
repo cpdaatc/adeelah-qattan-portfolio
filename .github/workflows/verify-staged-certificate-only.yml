@@ -1,0 +1,28 @@
+name: Verify staged certificate only
+on:
+  push:
+    paths:
+      - '.github/workflows/verify-staged-certificate-only.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct and verify certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .final-stage/cert-00.b64 .final-stage/cert-01-02.b64 .final-stage/cert-03-04.b64 .final-stage/cert-05-06.b64 .final-stage/cert-07.b64 | tr -d '\r\n\t ' > /tmp/cert.b64
+          python3 - <<'PY'
+          import base64,hashlib
+          from pathlib import Path
+          s=Path('/tmp/cert.b64').read_text().strip()
+          print('B64_CHARS',len(s))
+          raw=base64.b64decode(s,validate=True)
+          Path('/tmp/certificate.jpg').write_bytes(raw)
+          print('BYTES',len(raw))
+          print('SHA256',hashlib.sha256(raw).hexdigest())
+          assert hashlib.sha256(raw).hexdigest() == 'bf6f50dd474156670bcbaae21fdd9bc6b63d1ab68b2c0c62e76261624398544d'
+          PY

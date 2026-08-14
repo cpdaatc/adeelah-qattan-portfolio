@@ -1,0 +1,27 @@
+name: Inspect staged portrait 20260815
+on:
+  push:
+    branches: [canonical-repair-final-20260815]
+    paths: ['.github/workflows/inspect-staged-portrait-20260815.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct portrait
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .final-stage/portrait-{00..10}.b64 | tr -d '\r\n\t ' | base64 -d > portrait-staged.jpg
+          echo 'a33c1117ec1b20d5f3aa6528b6759cdc1da0eb8b2ab37a11c543073929769478  portrait-staged.jpg' | sha256sum -c -
+          python - <<'PY'
+          from PIL import Image
+          p='portrait-staged.jpg'
+          im=Image.open(p); print(im.size, im.mode); im.verify()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staged-portrait-20260815
+          path: portrait-staged.jpg

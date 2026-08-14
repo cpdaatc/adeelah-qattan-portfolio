@@ -1,0 +1,32 @@
+name: Verify staged final assets
+
+on:
+  push:
+    paths:
+      - '.github/workflows/verify-staged-final-assets.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact staged assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/final-assets
+          cat .final-stage/portrait-{00..10}.b64 | tr -d '\r\n\t ' | base64 -d > /tmp/final-assets/portrait.jpg
+          cat .final-stage/cert-00.b64 .final-stage/cert-01-02.b64 .final-stage/cert-03-04.b64 .final-stage/cert-05-06.b64 .final-stage/cert-07.b64 | tr -d '\r\n\t ' | base64 -d > /tmp/final-assets/certificate.jpg
+          echo 'a33c1117ec1b20d5f3aa6528b6759cdc1da0eb8b2ab37a11c543073929769478  /tmp/final-assets/portrait.jpg' | sha256sum -c -
+          echo 'bf6f50dd474156670bcbaae21fdd9bc6b63d1ab68b2c0c62e76261624398544d  /tmp/final-assets/certificate.jpg' | sha256sum -c -
+          python3 - <<'PY'
+          from PIL import Image
+          for p,expected in [('/tmp/final-assets/portrait.jpg',(900,900)),('/tmp/final-assets/certificate.jpg',(900,1152))]:
+              im=Image.open(p); im.verify()
+              im=Image.open(p)
+              assert im.size == expected, (p, im.size, expected)
+              print('PASS',p,im.size)
+          PY

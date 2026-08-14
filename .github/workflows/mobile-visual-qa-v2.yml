@@ -1,0 +1,43 @@
+name: Mobile visual QA v2
+on:
+  push:
+    branches: [canonical-mobile-qa]
+    paths: ['.github/workflows/mobile-visual-qa-v2.yml']
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply canonical patch
+        run: python scripts/canonical_mobile_patch.py
+      - name: Validate CV and speaker bio
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v pdftotext >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils; }
+          pdftotext -layout assets/Dr_Adeelah_Qattan_CV_2026.pdf /tmp/cv.txt
+          pdftotext -layout assets/Dr_Adeelah_Qattan_Speaker_Bio_Bilingual.pdf /tmp/bio.txt
+          for token in 'atqattan@hotmail.com' 'adeelahqattan@gmail.com' 'Conference Committee Chair' '2nd Medical Education Conference' 'Healthcare Artificial Intelligence' '3rd Medical Education Conference' 'Innovation in Medical Education' '4th Medical Education Conference' 'AI and Medical Education' '5th Medical Education Leadership Summit' 'From Innovation to Measurable Impact' 'From AI to Responsible Intelligence'; do grep -F "$token" /tmp/cv.txt >/dev/null || exit 1; done
+          for token in 'Dr. Adeelah Talat Qattan' 'Consultant in Restorative Dentistry' 'Assistant Hospital Director for' 'Academic Affairs & Training' 'leadership experience in medical education and training' 'women’s empowerment'; do grep -F "$token" /tmp/bio.txt >/dev/null || exit 1; done
+      - name: Render mobile QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
+          test -n "$CHROME"
+          echo "CHROME=$CHROME" >> "$GITHUB_ENV"
+          npm init -y >/dev/null 2>&1
+          npm install puppeteer-core@24.16.0 --no-save --silent
+          mkdir -p qa-artifacts
+          python3 -m http.server 8000 --bind 127.0.0.1 >/tmp/http.log 2>&1 &
+          sleep 2
+          CHROME="$CHROME" node qa/mobile-qa.mjs
+      - name: Upload rendered QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-visual-qa-v2
+          path: qa-artifacts/
+          if-no-files-found: warn

@@ -1,0 +1,49 @@
+name: Capture final mobile screens
+on:
+  push:
+    paths:
+      - '.github/workflows/capture-final-mobile-screens.yml'
+permissions:
+  contents: write
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: canonical-repair-final-20260815
+          fetch-depth: 0
+      - name: Require passed release gate
+        run: grep -q 'FINAL MOBILE RELEASE GATE: PASS' audit/FINAL_PASS.txt
+      - name: Install Selenium
+        run: python3 -m pip install --user --break-system-packages --quiet selenium
+      - name: Capture 390x844 screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit/mobile-final
+          python3 -m http.server 8000 --bind 127.0.0.1 >/tmp/http.log 2>&1 & SERVER=$!
+          trap 'kill $SERVER || true' EXIT
+          sleep 2
+          python3 - <<'PY'
+          import time
+          from selenium import webdriver
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.chrome.options import Options
+          o=Options(); o.add_argument('--headless=new'); o.add_argument('--no-sandbox'); o.add_argument('--disable-gpu'); o.add_argument('--window-size=390,844'); o.add_argument('--force-device-scale-factor=1')
+          d=webdriver.Chrome(options=o)
+          try:
+            d.get('http://127.0.0.1:8000/index.html?visual-final=1'); time.sleep(1)
+            d.save_screenshot('audit/mobile-final/01-en-home.png')
+            d.execute_script("document.body.classList.add('menu-open')"); time.sleep(.3); d.save_screenshot('audit/mobile-final/02-en-menu.png')
+            d.execute_script("document.body.classList.remove('menu-open'); toggleLanguage(); document.body.classList.add('menu-open')"); time.sleep(.35); d.save_screenshot('audit/mobile-final/03-ar-menu.png')
+            d.execute_script("document.body.classList.remove('menu-open'); location.hash='royal';"); time.sleep(.8); d.save_screenshot('audit/mobile-final/04-royal-ar.png')
+          finally: d.quit()
+          PY
+      - name: Commit visual evidence to repair branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add audit/mobile-final
+          git commit -m 'test: add final mobile visual evidence'
+          git push origin HEAD:canonical-repair-final-20260815

@@ -19,29 +19,23 @@ jobs:
           set -euo pipefail
           echo '--- canonical-upload ---'
           ls -la .canonical-upload || true
-          if ls .canonical-upload/portrait-0*.b64 >/dev/null 2>&1; then
-            cat .canonical-upload/portrait-01.b64 .canonical-upload/portrait-02.b64 .canonical-upload/portrait-03.b64 .canonical-upload/portrait-04.b64 .canonical-upload/portrait-05.b64 .canonical-upload/portrait-06.b64 | tr -d '\r\n\t ' > /tmp/prefix.b64
-            printf 'prefix chars: '; wc -c < /tmp/prefix.b64
-            printf 'prefix sha256: '; sha256sum /tmp/prefix.b64 | cut -d' ' -f1
-          fi
+          for f in .canonical-upload/portrait-01.b64 .canonical-upload/portrait-02.b64 .canonical-upload/portrait-03.b64 .canonical-upload/portrait-04.b64 .canonical-upload/portrait-05.b64 .canonical-upload/portrait-06.b64; do
+            [ -f "$f" ] || continue
+            tr -d '\r\n\t ' < "$f" > /tmp/one.b64
+            echo "$(basename "$f") chars=$(wc -c < /tmp/one.b64) sha256=$(sha256sum /tmp/one.b64 | cut -d' ' -f1)"
+          done
+          cat .canonical-upload/portrait-01.b64 .canonical-upload/portrait-02.b64 .canonical-upload/portrait-03.b64 .canonical-upload/portrait-04.b64 .canonical-upload/portrait-05.b64 .canonical-upload/portrait-06.b64 | tr -d '\r\n\t ' > /tmp/prefix.b64
+          echo "prefix chars=$(wc -c < /tmp/prefix.b64) sha256=$(sha256sum /tmp/prefix.b64 | cut -d' ' -f1)"
+          echo 'EXPECTED chunks:'
+          echo '01 a1c052d258e14573afdf94058bf5478ea0adf609404c0b449c65a62437f70bee'
+          echo '02 e1fb6458bf8418a69d18d861f802afbb4825c2e255437c07ad8b5771dc8a8506'
+          echo '03 801a8398a2e12fc38667b78ed0d93491d0b7ddf3998713b102bb8af57bf3a0a8'
+          echo '04 038c54ca93629f873d5f43471a43903c4798562eda4399b222cb5e06ff31bffe'
+          echo '05 8d1b32b987d4cb6cd223def5d8a63153d76d0ec5a21a36f93c037fee6e021483'
+          echo '06 912b2cb7c93d5fefcf48a7fe4569e3960d5272b429715300a174ae3f59443840'
+          echo 'EXPECTED prefix_107706=0f2bb9bd1b52c50212318cfef8ffda1ad7bece98bd7ff9c33c4f12031ac794e8'
           if [ -f .canonical-upload/portrait-tail.b64 ]; then
             tr -d '\r\n\t ' < .canonical-upload/portrait-tail.b64 > /tmp/tail.b64
-            printf 'tail chars: '; wc -c < /tmp/tail.b64
-            printf 'tail sha256: '; sha256sum /tmp/tail.b64 | cut -d' ' -f1
-            cat /tmp/prefix.b64 /tmp/tail.b64 > /tmp/full.b64
-            printf 'full chars: '; wc -c < /tmp/full.b64
-            printf 'full base64 sha256: '; sha256sum /tmp/full.b64 | cut -d' ' -f1
-            if base64 -d /tmp/full.b64 > /tmp/portrait.jpg 2>/tmp/decode.err; then
-              file /tmp/portrait.jpg
-              printf 'decoded bytes: '; wc -c < /tmp/portrait.jpg
-              printf 'decoded sha256: '; sha256sum /tmp/portrait.jpg | cut -d' ' -f1
-              tail -c 2 /tmp/portrait.jpg | od -An -tx1
-            else
-              cat /tmp/decode.err
-            fi
+            echo "tail chars=$(wc -c < /tmp/tail.b64) sha256=$(sha256sum /tmp/tail.b64 | cut -d' ' -f1)"
+            echo 'EXPECTED tail_6666=3bc0987a73ea8afb665bf51bee69b1711d53252e30bfbc7de4c7b295ef6aca74'
           fi
-          echo 'EXPECTED canonical q75 portrait:'
-          echo 'base64 chars=114372'
-          echo 'base64 sha256=9ea3b42eb62463d0da39c80696014b56df8e8589f9ad255f4df3680e6dca6325'
-          echo 'decoded bytes=85779'
-          echo 'decoded sha256=0372be80e75f3b0601bf8ff20c0afb7c9a97fbfe6e5106b0d2675106a7e1781d'

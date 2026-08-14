@@ -1,0 +1,81 @@
+name: Release asset forensics
+on:
+  push:
+    paths:
+      - '.github/workflows/release-asset-forensics.yml'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Collect unique historical image assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --force
+          mkdir -p /tmp/candidates /tmp/portraits /tmp/certs
+          : > /tmp/seen
+          for ref in $(git for-each-ref --format='%(refname)' refs/remotes/origin refs/heads); do
+            git ls-tree -r -l "$ref" 2>/dev/null | awk '$5 ~ /^assets\// && tolower($5) ~ /\.(jpg|jpeg|png|webp)$/ {print $3" "$4" "$5}' | while read -r sha size path; do
+              low=$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')
+              case "$low" in
+                *portrait*|*medal*|*certificate*) ;;
+                *) continue;;
+              esac
+              if grep -qx "$sha" /tmp/seen; then continue; fi
+              echo "$sha" >> /tmp/seen
+              ext="${path##*.}"
+              short=${sha:0:10}
+              base=$(basename "$path" | tr ' /' '__')
+              out="/tmp/candidates/${short}_${base}"
+              git cat-file blob "$sha" > "$out" || continue
+              if identify "$out" >/dev/null 2>&1; then
+                dims=$(identify -format '%wx%h' "$out")
+                bytes=$(stat -c%s "$out")
+                printf '%s\t%s\t%s\t%s\n' "$short" "$dims" "$bytes" "$path" >> /tmp/assets.tsv
+                if printf '%s' "$low" | grep -q portrait; then cp "$out" /tmp/portraits/; else cp "$out" /tmp/certs/; fi
+              fi
+            done
+          done
+          sort -u /tmp/assets.tsv -o /tmp/assets.tsv
+          cat /tmp/assets.tsv
+      - name: Build contact sheets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from PIL import Image, ImageDraw, ImageFont
+          from pathlib import Path
+          def make(src, out, cell=(260,320)):
+              files=sorted(Path(src).iterdir()) if Path(src).exists() else []
+              if not files: return
+              cols=4; rows=(len(files)+cols-1)//cols
+              sheet=Image.new('RGB',(cols*cell[0],rows*cell[1]),'white')
+              d=ImageDraw.Draw(sheet)
+              for i,p in enumerate(files):
+                  try: im=Image.open(p).convert('RGB')
+                  except: continue
+                  im.thumbnail((cell[0]-20,cell[1]-80),Image.Resampling.LANCZOS)
+                  x=(i%cols)*cell[0]+(cell[0]-im.width)//2
+                  y=(i//cols)*cell[1]+8
+                  sheet.paste(im,(x,y))
+                  label=p.name[:42]
+                  d.text(((i%cols)*cell[0]+8,(i//cols)*cell[1]+cell[1]-62),label,fill='black')
+                  d.text(((i%cols)*cell[0]+8,(i//cols)*cell[1]+cell[1]-42),f'{Image.open(p).size} {p.stat().st_size}B',fill='black')
+              sheet.save(out,quality=92)
+          make('/tmp/portraits','/tmp/portrait-contact.jpg')
+          make('/tmp/certs','/tmp/certificate-contact.jpg',(300,390))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: historical-asset-forensics
+          path: |
+            /tmp/assets.tsv
+            /tmp/portrait-contact.jpg
+            /tmp/certificate-contact.jpg
+            /tmp/candidates
+          retention-days: 3

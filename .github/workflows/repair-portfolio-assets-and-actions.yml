@@ -12,28 +12,15 @@ permissions:
 jobs:
   repair:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Restore verified image assets from repository history
+      - name: Patch mobile typography actions and asset references
         shell: bash
         run: |
           set -euo pipefail
-          # Approved high-quality portrait already preserved in Git history.
-          gh api "/repos/${GITHUB_REPOSITORY}/git/blobs/732e308023ed5b5e63c4a61683bfe643fcad35b4" --jq '.content' | tr -d '\n' | base64 -d > assets/portrait.jpg
-          test "$(git hash-object assets/portrait.jpg)" = "732e308023ed5b5e63c4a61683bfe643fcad35b4"
-
-          # Restore the pre-corruption full King Fahd Medal certificate asset.
-          gh api "/repos/${GITHUB_REPOSITORY}/git/blobs/c7f81792a9809e930987561d77febc7b855b9a5f" --jq '.content' | tr -d '\n' | base64 -d > assets/King_Fahd_Medal_Third_Degree_2019.jpg
-          test "$(git hash-object assets/King_Fahd_Medal_Third_Degree_2019.jpg)" = "c7f81792a9809e930987561d77febc7b855b9a5f"
-
-      - name: Repair portrait reference, certificate display and missing print action
-        shell: bash
-        run: |
           python - <<'PY'
           from pathlib import Path
           import re
@@ -41,63 +28,80 @@ jobs:
           p = Path('index.html')
           t = p.read_text(encoding='utf-8')
 
-          # 1) The visible portrait was still pointing to the old low-resolution WEBP.
-          t = re.sub(r'assets/portrait\.webp(?:\?v=[^"\']+)?',
-                     'assets/portrait.jpg?v=20260814-portrait-final', t)
-          t = t.replace('download="Dr_Adeelah_Qattan_Portrait.webp"',
-                        'download="Dr_Adeelah_Qattan_Portrait.jpg"')
+          old_nav = '.mobile-panel a{display:block;text-decoration:none;color:var(--teal-950);font:600 1.5rem/1.3 "Cormorant Garamond",serif;padding:13px 0;border-bottom:1px solid var(--line)}'
+          new_nav = '.mobile-panel > a{display:block;text-decoration:none;color:var(--teal-950);font:600 .95rem/1.45 Outfit,sans-serif;padding:10px 0;border-bottom:1px solid var(--line)}html[lang="ar"] .mobile-panel > a{font-family:"Noto Kufi Arabic",sans-serif}'
+          if old_nav in t:
+              t = t.replace(old_nav, new_nav, 1)
 
-          # 2) Force the Royal Honour section to use the restored full certificate.
-          t = re.sub(r'assets/King_Fahd_Medal_Third_Degree_2019\.jpg(?:\?v=[^"\']+)?',
-                     'assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-certificate-final', t)
-          t = re.sub(r'\.royal-document img\{([^}]*)\}',
-                     lambda m: '.royal-document img{' + re.sub(r'aspect-ratio:[^;]+;?', '', m.group(1)).replace('object-fit:cover', 'object-fit:contain') + '}',
-                     t, count=1)
+          t = t.replace('assets/portrait.jpg?v=20260814-portrait-final', 'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-final')
+          t = t.replace('assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-certificate-final', 'assets/King_Fahd_Medal_Certificate_Full_2019.jpg?v=20260814-mobile-final')
 
-          # 3) Restore the missing Print / Save CV action in the hero.
-          hero_match = re.search(r'(<div class="hero-actions">)(.*?)(</div>)', t, flags=re.S)
-          if not hero_match:
-              raise SystemExit('hero-actions block not found')
-          hero_body = hero_match.group(2)
-          if 'window.print()' not in hero_body:
-              print_btn = '''\n          <button class="btn btn-ghost" type="button" onclick="window.print()"><span class="action-icon" aria-hidden="true">🖨️</span><span class="en">Print / Save CV</span><span class="ar">طباعة / حفظ السيرة</span></button>'''
-              replacement = hero_match.group(1) + hero_body + print_btn + '\n        ' + hero_match.group(3)
-              t = t[:hero_match.start()] + replacement + t[hero_match.end():]
+          hs = t.index('<header class="hero"')
+          he = t.index('</header>', hs)
+          hero = t[hs:he]
+          hero = re.sub(r'\s*<button class="btn btn-ghost"[^>]*onclick="window\.print\(\)"[^>]*>.*?</button>', '', hero, count=1, flags=re.S)
+          t = t[:hs] + hero + t[he:]
 
-          # 4) Restore the same action inside the mobile action list.
-          panel_start = t.index('<div class="mobile-panel" id="mobilePanel">')
-          panel_end = t.index('</div>\n\n  <header class="hero"', panel_start)
-          panel = t[panel_start:panel_end]
-          if 'onclick="window.print()"' not in panel:
-              cv_link = re.search(r'(\s*<a class="btn btn-primary resource-download" href="assets/Dr_Adeelah_Qattan_CV_2026\.pdf[^\n]+</a>)', panel)
-              if not cv_link:
-                  raise SystemExit('mobile CV download link not found')
-              print_mobile = '''\n      <button class="btn btn-primary resource-download" type="button" onclick="window.print()"><span class="action-icon" aria-hidden="true">🖨️</span><span class="en">Print / Save CV</span><span class="ar">طباعة / حفظ السيرة</span></button>'''
-              panel = panel[:cv_link.end()] + print_mobile + panel[cv_link.end():]
-              t = t[:panel_start] + panel + t[panel_end:]
+          marker = '/* MOBILE-UX-REFINEMENT-FINAL */'
+          css = '''
+    /* MOBILE-UX-REFINEMENT-FINAL */
+    @media(max-width:980px){
+      .mobile-panel{padding:20px 22px 24px;overflow-y:auto}
+      .mobile-panel .sidebar-downloads{gap:8px;margin-top:16px;padding-bottom:24px}
+      .mobile-panel .sidebar-downloads .resource-download{display:flex!important;width:100%;min-height:44px;padding:9px 13px!important;border-radius:12px!important;font:600 .78rem/1.35 Outfit,sans-serif!important;border-bottom:0!important;white-space:normal;text-align:center}
+      html[lang="ar"] .mobile-panel .sidebar-downloads .resource-download{font-family:"Noto Kufi Arabic",sans-serif!important;font-size:.74rem!important}
+      .mobile-panel .sidebar-downloads .action-icon{font-size:.9rem!important;line-height:1;flex:0 0 auto}
+      .royal-document{max-width:380px;margin-left:auto;margin-right:auto}
+      .royal-document img{width:100%;height:auto;object-fit:contain}
+    }
+    @media(max-width:650px){
+      .mobile-panel{padding:18px 20px 22px}
+      .mobile-panel > a{font-size:.9rem;padding:9px 0}
+      .mobile-panel .sidebar-downloads{gap:7px;margin-top:14px}
+      .mobile-panel .sidebar-downloads .resource-download{min-height:42px;padding:8px 12px!important;font-size:.74rem!important}
+      html[lang="ar"] .mobile-panel .sidebar-downloads .resource-download{font-size:.72rem!important}
+      .royal-document{max-width:340px;padding:8px}
+      .royal-document figcaption{padding:9px 6px 3px}
+      .royal-document figcaption strong{font-size:.66rem}
+    }
+'''
+          if marker not in t:
+              t = t.replace('    @media(prefers-reduced-motion:reduce)', css + '    @media(prefers-reduced-motion:reduce)', 1)
 
           p.write_text(t, encoding='utf-8')
           PY
 
-      - name: Verify repaired state
+      - name: Verify requested mobile state
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
           t = Path('index.html').read_text(encoding='utf-8')
-          assert 'assets/portrait.webp' not in t
-          assert 'assets/portrait.jpg?v=20260814-portrait-final' in t
-          assert 'Dr_Adeelah_Qattan_Portrait.jpg' in t
-          assert 'King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-certificate-final' in t
-          assert 'King_Fahd_Medal_Closeup_2019.jpg' not in t[t.index('<section class="royal" id="royal">'):t.index('</section>', t.index('<section class="royal" id="royal">'))]
-          assert t.count('onclick="window.print()"') >= 2
-          assert 'Print / Save CV' in t
-          assert 'طباعة / حفظ السيرة' in t
-          print('portfolio asset/action checks passed')
+          assert '.mobile-panel > a{' in t
+          assert 'font:600 .78rem/1.35 Outfit,sans-serif!important' in t
+          assert 'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-final' in t
+          assert 'assets/King_Fahd_Medal_Certificate_Full_2019.jpg?v=20260814-mobile-final' in t
+          assert Path('assets/Dr_Adeelah_Qattan_Portrait_Original.jpg').stat().st_size > 50000
+          assert Path('assets/King_Fahd_Medal_Certificate_Full_2019.jpg').stat().st_size > 60000
+
+          hs = t.index('<header class="hero"')
+          he = t.index('</header>', hs)
+          assert 'window.print()' not in t[hs:he]
+
+          ms = t.index('<div class="mobile-panel"')
+          me = t.index('</div>\n\n  <header', ms)
+          menu = t[ms:me]
+          for token in ['🖼️','Download Personal Photo','تحميل الصورة الشخصية','📄','Download Speaker Bio','تحميل النبذة التعريفية','📘','Download CV','تحميل السيرة الذاتية','🖨️','window.print()']:
+              assert token in menu, token
+
+          rs = t.index('<section class="royal" id="royal">')
+          re_ = t.index('</section>', rs)
+          royal = t[rs:re_]
+          assert '<a ' not in royal
+          assert 'download' not in royal
+          print('PASS: compact mobile typography and buttons; portrait and certificate references verified')
           PY
-          test "$(git hash-object assets/portrait.jpg)" = "732e308023ed5b5e63c4a61683bfe643fcad35b4"
-          test "$(git hash-object assets/King_Fahd_Medal_Third_Degree_2019.jpg)" = "c7f81792a9809e930987561d77febc7b855b9a5f"
 
       - name: Commit repaired portfolio
         shell: bash
@@ -105,10 +109,10 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html assets/portrait.jpg assets/King_Fahd_Medal_Third_Degree_2019.jpg
+          git add index.html
           if git diff --cached --quiet; then
             echo 'No changes to commit'
             exit 0
           fi
-          git commit -m 'fix: restore portrait, certificate and print action'
+          git commit -m 'fix: refine mobile menu buttons portrait and medal certificate'
           git push origin HEAD:main

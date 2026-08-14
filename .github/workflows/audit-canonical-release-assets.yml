@@ -1,0 +1,47 @@
+name: Audit canonical release assets
+on:
+  push:
+    paths:
+      - '.github/workflows/audit-canonical-release-assets.yml'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/canonical-20260815
+          fetch-depth: 0
+      - name: Audit existing staged portrait pieces
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '--- canonical-upload ---'
+          ls -la .canonical-upload || true
+          if ls .canonical-upload/portrait-0*.b64 >/dev/null 2>&1; then
+            cat .canonical-upload/portrait-01.b64 .canonical-upload/portrait-02.b64 .canonical-upload/portrait-03.b64 .canonical-upload/portrait-04.b64 .canonical-upload/portrait-05.b64 .canonical-upload/portrait-06.b64 | tr -d '\r\n\t ' > /tmp/prefix.b64
+            printf 'prefix chars: '; wc -c < /tmp/prefix.b64
+            printf 'prefix sha256: '; sha256sum /tmp/prefix.b64 | cut -d' ' -f1
+          fi
+          if [ -f .canonical-upload/portrait-tail.b64 ]; then
+            tr -d '\r\n\t ' < .canonical-upload/portrait-tail.b64 > /tmp/tail.b64
+            printf 'tail chars: '; wc -c < /tmp/tail.b64
+            printf 'tail sha256: '; sha256sum /tmp/tail.b64 | cut -d' ' -f1
+            cat /tmp/prefix.b64 /tmp/tail.b64 > /tmp/full.b64
+            printf 'full chars: '; wc -c < /tmp/full.b64
+            printf 'full base64 sha256: '; sha256sum /tmp/full.b64 | cut -d' ' -f1
+            if base64 -d /tmp/full.b64 > /tmp/portrait.jpg 2>/tmp/decode.err; then
+              file /tmp/portrait.jpg
+              printf 'decoded bytes: '; wc -c < /tmp/portrait.jpg
+              printf 'decoded sha256: '; sha256sum /tmp/portrait.jpg | cut -d' ' -f1
+              tail -c 2 /tmp/portrait.jpg | od -An -tx1
+            else
+              cat /tmp/decode.err
+            fi
+          fi
+          echo 'EXPECTED canonical q75 portrait:'
+          echo 'base64 chars=114372'
+          echo 'base64 sha256=9ea3b42eb62463d0da39c80696014b56df8e8589f9ad255f4df3680e6dca6325'
+          echo 'decoded bytes=85779'
+          echo 'decoded sha256=0372be80e75f3b0601bf8ff20c0afb7c9a97fbfe6e5106b0d2675106a7e1781d'

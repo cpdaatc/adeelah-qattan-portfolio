@@ -1,0 +1,38 @@
+name: Media transfer probe
+on:
+  push:
+    branches: [canonical-mobile-qa]
+    paths: ['.github/workflows/media-probe.yml']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe exact uploaded portrait source
+        shell: bash
+        env:
+          CANVA_URL: "https://media.canva.com/v2/image-resize/format:JPG/height:200/quality:75/uri:ifs%3A%2F%2FM%2F79483f2c-9fe5-4082-b81c-c11c3bbb4dfb/watermark:F/width:200?csig=AAAAAAAAAAAAAAAAAAAAAJ38SKTQfr_yqghSMXz6R1Nod-m_Gu1kx5KTzaLSxcB2&exp=1786764570&osig=AAAAAAAAAAAAAAAAAAAAAKCXEvf0zfFn5rCmjBJ_gBdJA0rB8W2FmGwjCRsiBNkJ&signer=media-rpc&x-canva-quality=thumbnail"
+        run: |
+          set -euo pipefail
+          curl -fL "$CANVA_URL" -o /tmp/p200.jpg
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/p200.jpg')
+          print('thumb-bytes',p.stat().st_size)
+          print('head',p.read_bytes()[:2].hex(),'tail',p.read_bytes()[-2:].hex())
+          PY
+          LARGE_URL="${CANVA_URL/height:200/height:1254}"
+          LARGE_URL="${LARGE_URL/width:200/width:1254}"
+          LARGE_URL="${LARGE_URL/quality:75/quality:95}"
+          LARGE_URL="${LARGE_URL/x-canva-quality=thumbnail/x-canva-quality=screen}"
+          set +e
+          curl -L -sS -w '\nlarge-http=%{http_code}\n' "$LARGE_URL" -o /tmp/p1254.jpg
+          rc=$?
+          set -e
+          echo "large-curl-rc=$rc"
+          if [ -f /tmp/p1254.jpg ]; then
+            file /tmp/p1254.jpg || true
+            wc -c /tmp/p1254.jpg
+            head -c 100 /tmp/p1254.jpg | xxd -p || true
+          fi

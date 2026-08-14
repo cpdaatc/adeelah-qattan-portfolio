@@ -1,0 +1,97 @@
+name: Recover assets to canonical release
+on:
+  push:
+    paths:
+      - '.github/workflows/recover-assets-to-release.yml'
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch all refs
+        run: |
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --force
+          git fetch --tags --force
+      - name: Recover verified portrait and full certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pillow
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageOps, ImageEnhance
+          from io import BytesIO
+          import subprocess, base64, hashlib
+
+          PORTRAIT_SHA='0372be80e75f3b0601bf8ff20c0afb7c9a97fbfe6e5106b0d2675106a7e1781d'
+          portrait=None; certificate=None
+          objects=subprocess.check_output(['git','rev-list','--objects','--all'],text=True,errors='ignore').splitlines()
+          seen=set()
+          for line in objects:
+              parts=line.split(' ',1)
+              if len(parts)!=2: continue
+              sha,path=parts
+              if sha in seen: continue
+              seen.add(sha)
+              low=path.lower()
+              try: raw=subprocess.check_output(['git','cat-file','blob',sha])
+              except: continue
+              candidates=[]
+              # Native image blob
+              if low.endswith(('.jpg','.jpeg','.png','.webp')):
+                  candidates.append(raw)
+              # Historical Base64 staging blob
+              if low.endswith('.b64') or 'base64' in low:
+                  try:
+                      s=''.join(raw.decode('ascii','ignore').split()); pad='='*((4-len(s)%4)%4)
+                      candidates += [base64.b64decode(s+pad,validate=False), base64.urlsafe_b64decode(s+pad)]
+                  except: pass
+              for data in candidates:
+                  if not data: continue
+                  digest=hashlib.sha256(data).hexdigest()
+                  if digest==PORTRAIT_SHA:
+                      portrait=data
+                      print('VERIFIED PORTRAIT',path,len(data),digest)
+                  try:
+                      im=Image.open(BytesIO(data)); im.verify(); im=Image.open(BytesIO(data))
+                      w,h=im.size
+                  except: continue
+                  if w==859 and h==1100 and len(data)>=80000:
+                      certificate=data
+                      print('VERIFIED FULL CERTIFICATE',path,len(data),hashlib.sha256(data).hexdigest())
+          if portrait is None:
+              raise SystemExit('BLOCK: exact canonical portrait not found in repository history/staging')
+          if certificate is None:
+              raise SystemExit('BLOCK: full 859x1100 certificate not found in repository history/staging')
+          Path('/tmp/portrait.jpg').write_bytes(portrait)
+          Path('/tmp/certificate.jpg').write_bytes(certificate)
+
+          # Build a share card from the same verified portrait; never use a different face/image.
+          p=Image.open(BytesIO(portrait)).convert('RGB')
+          card=Image.new('RGB',(1200,630),(245,249,249))
+          crop=ImageOps.fit(p,(630,630),method=Image.Resampling.LANCZOS,centering=(0.5,0.42))
+          card.paste(crop,(570,0))
+          # clean teal panel; text is kept in HTML OG metadata to avoid font-rendering dependency
+          overlay=Image.new('RGB',(570,630),(15,61,68)); card.paste(overlay,(0,0))
+          card.save('/tmp/share-preview.jpg','JPEG',quality=88,optimize=True,progressive=True)
+          print('SHARE PREVIEW',Path('/tmp/share-preview.jpg').stat().st_size)
+          PY
+      - name: Commit verified assets to isolated release only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch -C release/canonical-20260815 origin/release/canonical-20260815
+          mkdir -p assets
+          cp /tmp/portrait.jpg assets/Dr_Adeelah_Qattan_Personal_Photo_Original_No_Frame.jpg
+          cp /tmp/portrait.jpg assets/portrait.jpg
+          cp /tmp/certificate.jpg assets/King_Fahd_Medal_Certificate_Full_2019.jpg
+          cp /tmp/share-preview.jpg assets/share-preview.jpg
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/Dr_Adeelah_Qattan_Personal_Photo_Original_No_Frame.jpg assets/portrait.jpg assets/King_Fahd_Medal_Certificate_Full_2019.jpg assets/share-preview.jpg
+          git commit -m 'fix: install verified portrait, full certificate and share preview'
+          git push origin HEAD:release/canonical-20260815

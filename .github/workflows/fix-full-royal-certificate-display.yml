@@ -1,0 +1,77 @@
+name: Fix full royal certificate display
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-full-royal-certificate-display.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Show complete certificate without click or download behavior
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          t=p.read_text(encoding='utf-8')
+
+          old='''      <figure class="royal-document">
+        <a class="royal-image-link" href="assets/King_Fahd_Medal_Closeup_2019.jpg?v=20260814-7" target="_blank" rel="noopener" aria-label="Open King Fahd Medal image full size">
+          <img src="assets/King_Fahd_Medal_Closeup_2019.jpg?v=20260814-7" alt="King Fahd Medal — Third Degree, 2019 documentation" loading="eager" decoding="sync">
+        </a>
+        <figcaption>
+          <strong><span class="en">King Fahd Medal — Third Degree · 2019</span><span class="ar">ميدالية الملك فهد — الدرجة الثالثة · 2019</span></strong>
+          <small><span class="en">Tap or click the image to view it full size</span><span class="ar">اضغط على الصورة لعرضها بالحجم الكامل والتكبير</span></small>
+        </figcaption>
+      </figure>'''
+          new='''      <figure class="royal-document royal-document-display-only">
+        <img src="assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-11" alt="King Fahd Medal — Third Degree, 2019 full certificate" loading="eager" decoding="async">
+        <figcaption>
+          <strong><span class="en">King Fahd Medal — Third Degree · 2019</span><span class="ar">ميدالية الملك فهد — الدرجة الثالثة · 2019</span></strong>
+        </figcaption>
+      </figure>'''
+          if old not in t:
+              raise SystemExit('Current royal certificate block not found')
+          t=t.replace(old,new,1)
+
+          t=t.replace('max-width:300px}.royal-image-link{display:block;overflow:hidden;border-radius:11px;background:#fff;cursor:zoom-in}.royal-document img{display:block;width:100%;height:auto;border-radius:11px;filter:contrast(1.05) saturate(1.02);transform:translateZ(0)}',
+                      'max-width:420px}.royal-document img{display:block;width:100%;height:auto;object-fit:contain;border-radius:11px;filter:contrast(1.03) saturate(1.01);transform:translateZ(0);pointer-events:none;user-select:none}')
+          t=t.replace('.royal-document figcaption small{display:block;margin-top:4px;font-size:.61rem;color:#6b777c;font-weight:500}','')
+          t=t.replace('.royal-grid{grid-template-columns:minmax(280px,300px) 1fr}', '.royal-grid{grid-template-columns:minmax(340px,420px) 1fr}')
+          t=t.replace('.royal-document{max-width:300px;margin:auto}', '.royal-document{max-width:420px;margin:auto}')
+          p.write_text(t,encoding='utf-8')
+          PY
+      - name: Verify display-only behavior
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          t=Path('index.html').read_text(encoding='utf-8')
+          start=t.index('<section class="royal" id="royal">')
+          end=t.index('</section>',start)
+          royal=t[start:end]
+          assert 'King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-11' in royal
+          assert 'King_Fahd_Medal_Closeup_2019.jpg' not in royal
+          assert 'royal-image-link' not in royal
+          assert 'Tap or click' not in royal
+          assert 'اضغط على الصورة' not in royal
+          assert '<a ' not in royal
+          assert 'download' not in royal
+          assert 'object-fit:contain' in t
+          print('full certificate is display-only')
+          PY
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'fix: display full King Fahd certificate without download'
+          git push origin HEAD:main

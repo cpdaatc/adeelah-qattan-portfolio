@@ -1,0 +1,47 @@
+name: PDF content audit
+on:
+  push:
+    branches: [canonical-mobile-qa]
+    paths: ['.github/workflows/pdf-audit.yml']
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract PDF text and audit required content
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v pdftotext >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils; }
+          pdftotext -layout assets/Dr_Adeelah_Qattan_CV_2026.pdf /tmp/cv.txt
+          pdftotext -layout assets/Dr_Adeelah_Qattan_Speaker_Bio_Bilingual.pdf /tmp/bio.txt
+          echo '--- CV first lines ---'; head -80 /tmp/cv.txt
+          echo '--- BIO first lines ---'; head -80 /tmp/bio.txt
+          for token in \
+            'atqattan@hotmail.com' \
+            'adeelahqattan@gmail.com' \
+            'Assistant Hospital Director' \
+            'Medical Education & Training' \
+            'Conference Committee Chair' \
+            '2nd Medical Education Conference' \
+            'Healthcare Artificial Intelligence' \
+            '3rd Medical Education Conference' \
+            'Innovation in Medical Education' \
+            '4th Medical Education Conference' \
+            'AI and Medical Education' \
+            '5th Medical Education Leadership Summit' \
+            'From Innovation to Measurable Impact' \
+            'From AI to Responsible Intelligence'; do
+            grep -F "$token" /tmp/cv.txt >/dev/null || { echo "MISSING CV: $token"; exit 1; }
+          done
+          for token in \
+            'Dr. Adeelah Talat Qattan' \
+            'Consultant' \
+            'Restorative Dentistry' \
+            'Academic Affairs' \
+            'Medical Education'; do
+            grep -F "$token" /tmp/bio.txt >/dev/null || { echo "MISSING BIO: $token"; exit 1; }
+          done
+          echo 'PASS PDF CONTENT AUDIT'

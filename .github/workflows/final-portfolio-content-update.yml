@@ -1,0 +1,137 @@
+name: Final portfolio content update
+
+on:
+  push:
+    paths:
+      - '.github/workflows/final-portfolio-content-update.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore clear King Fahd Medal image
+        run: |
+          base64 -d .tmp/medal-1.b64 > /tmp/medal-part-1.bin
+          base64 -d .tmp/medal-2.b64 > /tmp/medal-part-2.bin
+          cat /tmp/medal-part-1.bin /tmp/medal-part-2.bin > assets/King_Fahd_Medal_Closeup_2019.jpg
+          test "$(head -c 2 assets/King_Fahd_Medal_Closeup_2019.jpg | xxd -p)" = "ffd8"
+          test $(wc -c < assets/King_Fahd_Medal_Closeup_2019.jpg) -gt 20000
+
+      - name: Update portfolio content and controls
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          t=p.read_text(encoding='utf-8')
+
+          # Clear medal close-up only; certificate information remains separate.
+          t=t.replace('assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-2','assets/King_Fahd_Medal_Closeup_2019.jpg?v=20260814-4')
+          t=t.replace('assets/King_Fahd_Medal_Third_Degree_2019.jpg','assets/King_Fahd_Medal_Closeup_2019.jpg?v=20260814-4')
+          t=t.replace('assets/King_Fahd_Medal_Closeup_2019.jpg?v=20260814-3','assets/King_Fahd_Medal_Closeup_2019.jpg?v=20260814-4')
+          t=t.replace('.royal-document img{display:block;width:100%;height:auto;border-radius:11px}', '.royal-document a{display:block}.royal-document img{display:block;width:100%;height:auto;aspect-ratio:520/458;object-fit:cover;border-radius:11px;background:#fff;cursor:zoom-in}')
+          if '<a class="medal-zoom"' not in t:
+              t=t.replace('<figure class="royal-document">\n        <img src="assets/King_Fahd_Medal_Closeup_2019.jpg?v=20260814-4" alt="King Fahd Medal — Third Degree, 2019 documentation">', '<figure class="royal-document">\n        <a class="medal-zoom" href="assets/King_Fahd_Medal_Closeup_2019.jpg?v=20260814-4" target="_blank" rel="noopener" aria-label="Open King Fahd Medal image at full size"><img src="assets/King_Fahd_Medal_Closeup_2019.jpg?v=20260814-4" alt="King Fahd Medal — Third Degree, 2019"></a>')
+
+          # Unified download buttons with clear visual symbols.
+          t=t.replace('<a class="btn btn-primary resource-download" href="assets/Dr_Adeelah_Qattan_CV_2026.pdf" download><span class="en">Download CV (PDF)</span><span class="ar">تحميل السيرة الذاتية (PDF)</span></a>', '<a class="btn btn-primary resource-download" href="assets/Dr_Adeelah_Qattan_CV_2026.pdf?v=20260814-4" download><span aria-hidden="true">📄</span><span class="en">Download CV (PDF)</span><span class="ar">تحميل السيرة الذاتية (PDF)</span></a>')
+          t=t.replace('<a class="btn btn-ghost resource-download" href="assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg?v=20260814-2" download><span class="en">Download Personal Photo</span><span class="ar">تحميل الصورة الشخصية</span></a>', '<a class="btn btn-primary resource-download" href="assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg?v=20260814-2" download><span aria-hidden="true">📷</span><span class="en">Download Personal Photo</span><span class="ar">تحميل الصورة الشخصية</span></a>')
+          t=t.replace('<a class="btn btn-ghost resource-download" href="assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg" download><span class="en">Download Personal Photo</span><span class="ar">تحميل الصورة الشخصية</span></a>', '<a class="btn btn-primary resource-download" href="assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg?v=20260814-2" download><span aria-hidden="true">📷</span><span class="en">Download Personal Photo</span><span class="ar">تحميل الصورة الشخصية</span></a>')
+          t=t.replace('<a class="btn btn-ghost resource-download" href="assets/Dr_Adeelah_Qattan_Speaker_Bio_Bilingual.pdf" download><span class="en">Download Speaker Bio (PDF)</span><span class="ar">تحميل النبذة التعريفية (PDF)</span></a>', '<a class="btn btn-primary resource-download" href="assets/Dr_Adeelah_Qattan_Speaker_Bio_Bilingual.pdf" download><span aria-hidden="true">📝</span><span class="en">Download Speaker Bio (PDF)</span><span class="ar">تحميل النبذة التعريفية (PDF)</span></a>')
+          if '.sidebar-downloads .resource-download{' not in t:
+              t=t.replace('.sidebar-downloads{display:grid;gap:10px;margin-top:22px}', '.sidebar-downloads{display:grid;gap:10px;margin-top:22px}.sidebar-downloads .resource-download{background:var(--teal-950);color:#fff!important;border-color:var(--teal-950);justify-content:center}.sidebar-downloads .resource-download:hover{background:var(--teal-800);border-color:var(--teal-800)}')
+
+          # Conference leadership record 2023-2026.
+          old_intro='<div class="conference-title"><h3><span class="en">Medical Education Conference Series</span><span class="ar">سلسلة مؤتمرات التعليم الطبي</span></h3><p class="en">Conference themes documented in the supplied Academic Affairs material. The 2026 item is explicitly shown as a future/planned direction.</p><p class="ar">موضوعات المؤتمرات كما تظهر في مادة الشؤون الأكاديمية المرفوعة، مع عرض 2026 بوضوح كتوجه مستقبلي/مخطط.</p></div>'
+          new_intro='<div class="conference-title"><h3><span class="en">Medical Education Conference Leadership · 2023-2026</span><span class="ar">سجل قيادة وتنظيم المؤتمرات · 2023-2026</span></h3><p class="en">Dr. Adeelah Talat Qattan served as Conference Committee Chair across the annual Medical Education Conference series and the fifth Medical Education Leadership Summit.</p><p class="ar">تولت د. عديلة طلعت قطان رئاسة لجنة المؤتمر ضمن سلسلة مؤتمرات التعليم الطبي السنوية وقمة قيادات التعليم الطبي الخامسة.</p></div>'
+          t=t.replace(old_intro,new_intro)
+
+          replacements={
+          '<div class="conference-item"><div class="year"><span class="en">2023 · 2nd</span><span class="ar">2023 · الثاني</span></div><h4><span class="en">Medical Education Conference</span><span class="ar">مؤتمر التعليم الطبي الثاني</span></h4><p><span class="en">Healthcare Artificial Intelligence</span><span class="ar">الذكاء الاصطناعي في الرعاية الصحية</span></p></div>':
+          '<div class="conference-item"><div class="year"><span class="en">2023 · 2nd</span><span class="ar">2023 · الثاني</span></div><h4><span class="en">2nd Medical Education Conference</span><span class="ar">المؤتمر السنوي الثاني للتعليم الطبي</span></h4><p class="conference-role"><span class="en">Conference Committee Chair</span><span class="ar">رئيسة لجنة المؤتمر</span></p><p><span class="en">Theme: Healthcare Artificial Intelligence</span><span class="ar">الشعار: الذكاء الاصطناعي في الرعاية الصحية</span></p></div>',
+          '<div class="conference-item"><div class="year"><span class="en">2024 · 3rd</span><span class="ar">2024 · الثالث</span></div><h4><span class="en">Medical Education Conference</span><span class="ar">مؤتمر التعليم الطبي الثالث</span></h4><p><span class="en">Innovation in Medical Education</span><span class="ar">الابتكار في التعليم الطبي</span></p></div>':
+          '<div class="conference-item"><div class="year"><span class="en">2024 · 3rd</span><span class="ar">2024 · الثالث</span></div><h4><span class="en">3rd Medical Education Conference</span><span class="ar">المؤتمر السنوي الثالث للتعليم الطبي</span></h4><p class="conference-role"><span class="en">Conference Committee Chair</span><span class="ar">رئيسة لجنة المؤتمر</span></p><p><span class="en">Theme: Innovation in Medical Education</span><span class="ar">الشعار: الابتكار في التعليم الطبي</span></p></div>',
+          '<div class="conference-item"><div class="year"><span class="en">2025 · 4th</span><span class="ar">2025 · الرابع</span></div><h4><span class="en">Medical Education Conference</span><span class="ar">مؤتمر التعليم الطبي الرابع</span></h4><p><span class="en">AI and Medical Education: Partnership for Resilient Healthcare</span><span class="ar">الذكاء الاصطناعي والتعليم الطبي: شراكة لرعاية صحية مرنة</span></p></div>':
+          '<div class="conference-item"><div class="year"><span class="en">2025 · 4th</span><span class="ar">2025 · الرابع</span></div><h4><span class="en">4th Medical Education Conference</span><span class="ar">المؤتمر السنوي الرابع للتعليم الطبي</span></h4><p class="conference-role"><span class="en">Conference Committee Chair</span><span class="ar">رئيسة لجنة المؤتمر</span></p><p><span class="en">Theme: AI and Medical Education: Partnership for Resilient Healthcare</span><span class="ar">الشعار: الذكاء الاصطناعي والتعليم الطبي: شراكة من أجل رعاية صحية مرنة</span></p></div>',
+          '<div class="conference-item planned"><div class="year"><span class="en">2026 · 5th</span><span class="ar">2026 · الخامس</span></div><h4><span class="en">Medical Education Leadership Summit</span><span class="ar">قمة قيادة التعليم الطبي</span></h4><p><span class="en">From Innovation to Measurable Impact and Sustainable System · From AI to Responsible Intelligence</span><span class="ar">من الابتكار إلى أثر قابل للقياس ونظام مستدام · من الذكاء الاصطناعي إلى الذكاء المسؤول</span></p></div>':
+          '<div class="conference-item"><div class="year"><span class="en">2026 · 5th</span><span class="ar">2026 · الخامسة</span></div><h4><span class="en">5th Medical Education Leadership Summit</span><span class="ar">قمة قيادات التعليم الطبي الخامسة</span></h4><p class="conference-role"><span class="en">Conference Committee Chair</span><span class="ar">رئيسة لجنة المؤتمر</span></p><p><span class="en">Theme: From Innovation to Measurable Impact and Sustainable System · From AI to Responsible Intelligence</span><span class="ar">الشعار: من الابتكار إلى الأثر الملموس والنظام المستدام · ومن الذكاء الاصطناعي إلى الذكاء المسؤول</span></p></div>'
+          }
+          for a,b in replacements.items(): t=t.replace(a,b)
+          if '.conference-role{' not in t:
+              t=t.replace('.conference-item p{margin:0;color:#64737A;font-size:.77rem;line-height:1.55}', '.conference-item p{margin:0;color:#64737A;font-size:.77rem;line-height:1.55}.conference-role{margin:8px 0!important;color:var(--teal-800)!important;font-weight:700!important}')
+
+          p.write_text(t,encoding='utf-8')
+          PY
+
+      - name: Update downloadable CV with conference leadership record
+        run: |
+          python -m pip install --quiet reportlab pypdf
+          python - <<'PY'
+          from pathlib import Path
+          from reportlab.lib import colors
+          from reportlab.lib.pagesizes import A4
+          from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+          from reportlab.lib.enums import TA_LEFT
+          from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+          from pypdf import PdfReader, PdfWriter
+
+          cv=Path('assets/Dr_Adeelah_Qattan_CV_2026.pdf')
+          reader=PdfReader(str(cv))
+          if reader.metadata and reader.metadata.get('/ConferenceLeadershipUpdate')=='2026-08-14':
+              print('CV conference page already present')
+          else:
+              add=Path('/tmp/conference_leadership.pdf')
+              doc=SimpleDocTemplate(str(add),pagesize=A4,rightMargin=38,leftMargin=38,topMargin=42,bottomMargin=42)
+              styles=getSampleStyleSheet()
+              title=ParagraphStyle('title',parent=styles['Heading1'],fontName='Helvetica-Bold',fontSize=19,leading=23,textColor=colors.HexColor('#0F3D44'),spaceAfter=8)
+              sub=ParagraphStyle('sub',parent=styles['BodyText'],fontName='Helvetica',fontSize=9,leading=13,textColor=colors.HexColor('#66727A'),spaceAfter=18)
+              cell=ParagraphStyle('cell',parent=styles['BodyText'],fontName='Helvetica',fontSize=8.2,leading=11,textColor=colors.HexColor('#26363B'),alignment=TA_LEFT)
+              head=ParagraphStyle('head',parent=cell,fontName='Helvetica-Bold',textColor=colors.white)
+              story=[Paragraph('Conference Leadership Record (2023-2026)',title),Paragraph('Dr. Adeelah Talat Qattan - Conference Committee Chair across the annual Medical Education Conference series and the 5th Medical Education Leadership Summit.',sub)]
+              data=[[Paragraph('Year',head),Paragraph('Event',head),Paragraph('Leadership Role',head),Paragraph('Theme / Slogan',head)],
+                    [Paragraph('2023',cell),Paragraph('2nd Medical Education Conference',cell),Paragraph('Conference Committee Chair',cell),Paragraph('Healthcare Artificial Intelligence',cell)],
+                    [Paragraph('2024',cell),Paragraph('3rd Medical Education Conference',cell),Paragraph('Conference Committee Chair',cell),Paragraph('Innovation in Medical Education',cell)],
+                    [Paragraph('2025',cell),Paragraph('4th Medical Education Conference',cell),Paragraph('Conference Committee Chair',cell),Paragraph('AI and Medical Education: Partnership for Resilient Healthcare',cell)],
+                    [Paragraph('2026',cell),Paragraph('5th Medical Education Leadership Summit',cell),Paragraph('Conference Committee Chair',cell),Paragraph('From Innovation to Measurable Impact and Sustainable System - From AI to Responsible Intelligence',cell)]]
+              table=Table(data,colWidths=[42,135,110,220],repeatRows=1,hAlign='LEFT')
+              table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#0F3D44')),('GRID',(0,0),(-1,-1),0.5,colors.HexColor('#D9E4E6')),('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),7),('RIGHTPADDING',(0,0),(-1,-1),7),('TOPPADDING',(0,0),(-1,-1),7),('BOTTOMPADDING',(0,0),(-1,-1),7),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#F5FAFA')])]))
+              story += [table,Spacer(1,16),Paragraph('This section is incorporated into the downloadable CV to keep the portfolio and CV leadership record aligned.',sub)]
+              doc.build(story)
+              writer=PdfWriter()
+              for page in reader.pages: writer.add_page(page)
+              for page in PdfReader(str(add)).pages: writer.add_page(page)
+              meta=dict(reader.metadata or {})
+              meta['/ConferenceLeadershipUpdate']='2026-08-14'
+              writer.add_metadata(meta)
+              with cv.open('wb') as f: writer.write(f)
+          PY
+
+      - name: Verify final update
+        run: |
+          grep -q 'Conference Committee Chair' index.html
+          grep -q 'رئيسة لجنة المؤتمر' index.html
+          grep -q 'قمة قيادات التعليم الطبي الخامسة' index.html
+          grep -q '📄' index.html
+          grep -q '📷' index.html
+          grep -q '📝' index.html
+          grep -q 'King_Fahd_Medal_Closeup_2019.jpg' index.html
+          test -s assets/Dr_Adeelah_Qattan_CV_2026.pdf
+          python - <<'PY'
+          from pypdf import PdfReader
+          r=PdfReader('assets/Dr_Adeelah_Qattan_CV_2026.pdf')
+          assert r.metadata.get('/ConferenceLeadershipUpdate')=='2026-08-14'
+          print('Final update verified:', len(r.pages), 'CV pages')
+          PY
+
+      - name: Commit final portfolio update
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html assets/King_Fahd_Medal_Closeup_2019.jpg assets/Dr_Adeelah_Qattan_CV_2026.pdf
+          git commit -m 'feat: update medal conference leadership CV and download buttons'
+          git push origin HEAD:main

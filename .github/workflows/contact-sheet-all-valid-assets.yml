@@ -1,0 +1,67 @@
+name: Contact sheet all valid image assets
+on:
+  push:
+    paths:
+      - '.github/workflows/contact-sheet-all-valid-assets.yml'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install imaging tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-pil
+      - name: Render all valid candidate blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit/all-portraits audit/all-certificates
+          python3 - <<'PY'
+          from PIL import Image,ImageFile,ImageDraw
+          from pathlib import Path
+          import subprocess,re,io
+          ImageFile.LOAD_TRUNCATED_IMAGES=False
+          out=Path('audit')
+          objs=subprocess.check_output(['git','rev-list','--objects','--all'],text=True,errors='ignore').splitlines()
+          groups={'all-portraits':[],'all-certificates':[]}
+          seen=set()
+          for line in objs:
+            p=line.split(' ',1)
+            if len(p)!=2: continue
+            sha,path=p
+            lp=path.lower()
+            grp=None
+            if re.search(r'(portrait|adeelah.*\.(jpg|jpeg|webp|png)$)',lp): grp='all-portraits'
+            if re.search(r'(king[_ -]?fahd|medal|certificate).*(jpg|jpeg|webp|png)$',lp): grp='all-certificates'
+            if not grp or sha in seen: continue
+            seen.add(sha)
+            try:
+              raw=subprocess.check_output(['git','cat-file','blob',sha])
+              im=Image.open(io.BytesIO(raw)); im.verify()
+              im=Image.open(io.BytesIO(raw)).convert('RGB')
+              w,h=im.size
+              if w<150 or h<150: continue
+              groups[grp].append((sha,path,raw,w,h))
+            except Exception: pass
+          for grp,items in groups.items():
+            cards=[]
+            for i,(sha,path,raw,w,h) in enumerate(items):
+              im=Image.open(io.BytesIO(raw)).convert('RGB')
+              im.thumbnail((250,250),Image.Resampling.LANCZOS)
+              c=Image.new('RGB',(290,330),'white'); c.paste(im,((290-im.width)//2,10+(250-im.height)//2))
+              d=ImageDraw.Draw(c); d.text((8,270),f'{i:02d} {sha[:8]} {w}x{h} {len(raw)}B',fill='black'); d.text((8,292),path[-45:],fill='black')
+              c.save(out/grp/f'{i:02d}-{sha[:8]}.jpg',quality=90); cards.append(c)
+            cols=4; rows=(len(cards)+cols-1)//cols
+            sheet=Image.new('RGB',(290*cols,330*max(1,rows)),'#ddd')
+            for i,c in enumerate(cards): sheet.paste(c,((i%cols)*290,(i//cols)*330))
+            sheet.save(out/f'{grp}.jpg',quality=90)
+            print(grp,len(items))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: all-valid-image-contact-sheets
+          path: audit
+          if-no-files-found: error

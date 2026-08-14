@@ -1,0 +1,129 @@
+name: Build WhatsApp-compatible social preview
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build-social-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Pillow
+        run: python -m pip install --quiet pillow
+      - name: Generate 1200x630 JPG social preview and patch metadata
+        run: |
+          python <<'PY'
+          from PIL import Image, ImageDraw, ImageFont, ImageFilter
+          from pathlib import Path
+          import re
+
+          portrait_path = Path('assets/portrait.webp')
+          out_path = Path('assets/share-preview.jpg')
+          img = Image.open(portrait_path).convert('RGB')
+
+          W,H = 1200,630
+          canvas = Image.new('RGB',(W,H),'#F2F9FA')
+          draw = ImageDraw.Draw(canvas)
+          for y in range(H):
+              t=y/(H-1)
+              r=int(242*(1-t)+232*t); g=int(249*(1-t)+244*t); b=int(250*(1-t)+246*t)
+              draw.line([(0,y),(W,y)], fill=(r,g,b))
+          draw.rectangle([0,0,18,H],fill='#0F3D44')
+          draw.rectangle([18,0,26,H],fill='#C9A961')
+
+          side=min(img.size)
+          left=(img.width-side)//2; top=(img.height-side)//2
+          p=img.crop((left,top,left+side,top+side)).resize((470,470),Image.LANCZOS)
+          mask=Image.new('L',(470,470),0)
+          ImageDraw.Draw(mask).ellipse((0,0,469,469),fill=255)
+          shadow=Image.new('RGBA',(520,520),(0,0,0,0))
+          ImageDraw.Draw(shadow).ellipse((25,25,495,495),fill=(15,61,68,40))
+          shadow=shadow.filter(ImageFilter.GaussianBlur(18))
+          canvas.paste(shadow.convert('RGB'),(660,55),shadow.getchannel('A'))
+          bg=Image.new('RGB',(500,500),'white')
+          bgm=Image.new('L',(500,500),0)
+          ImageDraw.Draw(bgm).ellipse((0,0,499,499),fill=255)
+          canvas.paste(bg,(670,65),bgm)
+          canvas.paste(p,(685,80),mask)
+          draw.ellipse((670,65,1170,565),outline='#C9A961',width=4)
+
+          serif='/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf'
+          sans='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+          sansb='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+          f_k=ImageFont.truetype(sansb,24)
+          f_name=ImageFont.truetype(serif,58)
+          f_role=ImageFont.truetype(sans,22)
+          f_small=ImageFont.truetype(sansb,19)
+          f_med=ImageFont.truetype(serif,27)
+
+          x=72
+          draw.text((x,92),'EXECUTIVE HEALTHCARE PORTFOLIO',font=f_k,fill='#2E8B96')
+          draw.line((72,134,510,134),fill='#2E8B96',width=2)
+          draw.text((x,162),'Dr. Adeelah',font=f_name,fill='#0F3D44')
+          draw.text((x,232),'Talat Qattan',font=f_name,fill='#0F3D44')
+          draw.text((x,330),'Assistant Hospital Director — Academic Affairs',font=f_role,fill='#37464D')
+          draw.text((x,372),'Director — Medical Education & Training',font=f_role,fill='#37464D')
+          draw.text((x,414),'Consultant — Restorative Dentistry',font=f_role,fill='#37464D')
+          draw.rounded_rectangle((72,488,605,575),radius=18,fill='#0F3D44')
+          draw.text((96,503),'ROYAL HONOUR · 2019',font=f_small,fill='#B8DDE1')
+          draw.text((96,532),'King Fahd Medal — Third Degree',font=f_med,fill='white')
+          canvas.save(out_path,quality=94,optimize=True,progressive=True)
+
+          index=Path('index.html')
+          text=index.read_text(encoding='utf-8')
+          block='''<!-- SOCIAL_PREVIEW_START -->
+  <link rel="canonical" href="https://cpdaatc.github.io/adeelah-qattan-portfolio/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Dr. Adeelah Talat Qattan — Executive Healthcare Portfolio">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="Dr. Adeelah Talat Qattan — Executive Healthcare Portfolio">
+  <meta property="og:description" content="Consultant in Restorative Dentistry, Assistant Hospital Director for Academic Affairs, and Director of Medical Education and Training.">
+  <meta property="og:url" content="https://cpdaatc.github.io/adeelah-qattan-portfolio/">
+  <meta property="og:image" content="https://cpdaatc.github.io/adeelah-qattan-portfolio/assets/share-preview.jpg?v=20260814">
+  <meta property="og:image:url" content="https://cpdaatc.github.io/adeelah-qattan-portfolio/assets/share-preview.jpg?v=20260814">
+  <meta property="og:image:secure_url" content="https://cpdaatc.github.io/adeelah-qattan-portfolio/assets/share-preview.jpg?v=20260814">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Dr. Adeelah Talat Qattan — Executive Healthcare Portfolio">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Dr. Adeelah Talat Qattan — Executive Healthcare Portfolio">
+  <meta name="twitter:description" content="Consultant in Restorative Dentistry, Assistant Hospital Director for Academic Affairs, and Director of Medical Education and Training.">
+  <meta name="twitter:image" content="https://cpdaatc.github.io/adeelah-qattan-portfolio/assets/share-preview.jpg?v=20260814">
+  <meta name="twitter:image:alt" content="Dr. Adeelah Talat Qattan — Executive Healthcare Portfolio">
+  <!-- SOCIAL_PREVIEW_END -->'''
+          text=re.sub(r'<!-- SOCIAL_PREVIEW_START -->.*?<!-- SOCIAL_PREVIEW_END -->',block,text,flags=re.S)
+          index.write_text(text,encoding='utf-8')
+          PY
+      - name: Verify image and metadata
+        run: |
+          python - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          im=Image.open('assets/share-preview.jpg')
+          assert im.size==(1200,630), im.size
+          text=Path('index.html').read_text(encoding='utf-8')
+          assert 'assets/share-preview.jpg?v=20260814' in text
+          assert 'og:image:width" content="1200"' in text
+          assert 'twitter:card" content="summary_large_image"' in text
+          print('preview ok', im.size)
+          PY
+      - name: Commit preview asset and metadata
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/share-preview.jpg index.html
+          if git diff --cached --quiet; then
+            echo 'No changes to commit'
+          else
+            git commit -m 'fix: use JPG portrait card for shared link preview'
+            git push origin HEAD:main
+          fi

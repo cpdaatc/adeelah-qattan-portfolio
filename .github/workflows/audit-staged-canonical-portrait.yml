@@ -1,0 +1,36 @@
+name: Audit staged canonical portrait
+on:
+  push:
+    paths:
+      - '.github/workflows/audit-staged-canonical-portrait.yml'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hash staged portrait chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -l .canonical-upload || true
+          for f in .canonical-upload/portrait-0*.b64; do
+            [ -f "$f" ] || continue
+            clean=$(tr -d '\r\n\t ' < "$f" | wc -c)
+            sha=$(tr -d '\r\n\t ' < "$f" | sha256sum | awk '{print $1}')
+            echo "$f clean_chars=$clean sha256=$sha"
+          done
+          cat .canonical-upload/portrait-01.b64 .canonical-upload/portrait-02.b64 .canonical-upload/portrait-03.b64 .canonical-upload/portrait-04.b64 .canonical-upload/portrait-05.b64 .canonical-upload/portrait-06.b64 | tr -d '\r\n\t ' > /tmp/prefix.b64
+          echo "prefix_chars=$(wc -c < /tmp/prefix.b64)"
+          echo "prefix_sha256=$(sha256sum /tmp/prefix.b64 | awk '{print $1}')"
+          if [ -f .canonical-upload/portrait-tail.b64 ]; then
+            tr -d '\r\n\t ' < .canonical-upload/portrait-tail.b64 > /tmp/tail.b64
+            echo "tail_chars=$(wc -c < /tmp/tail.b64)"
+            echo "tail_sha256=$(sha256sum /tmp/tail.b64 | awk '{print $1}')"
+            cat /tmp/prefix.b64 /tmp/tail.b64 > /tmp/full.b64
+            echo "full_chars=$(wc -c < /tmp/full.b64)"
+            echo "full_sha256=$(sha256sum /tmp/full.b64 | awk '{print $1}')"
+          fi
+          echo "EXPECTED prefix_107708=8840e263904551fd3d5f8c424acec6d3494cdedb1977d04bbd272b96890d793a"
+          echo "EXPECTED full_114372=9ea3b42eb62463d0da39c80696014b56df8e8589f9ad255f4df3680e6dca6325"

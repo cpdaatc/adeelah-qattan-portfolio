@@ -1,0 +1,94 @@
+name: Audit clean final release
+on:
+  push:
+    paths:
+      - '.github/workflows/audit-clean-final-release.yml'
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/final-mobile-20260815
+          fetch-depth: 0
+      - name: Install browser audit dependencies
+        run: python3 -m pip install --user --break-system-packages --quiet selenium
+      - name: Run final clean-release mobile audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .release-evidence
+          mkdir -p .release-evidence
+          python3 -m http.server 8000 --bind 127.0.0.1 >/tmp/http.log 2>&1 & SERVER=$!
+          trap 'kill $SERVER || true' EXIT
+          sleep 2
+          python3 - <<'PY'
+          import time
+          from selenium import webdriver
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.chrome.options import Options
+          o=Options(); o.add_argument('--headless=new'); o.add_argument('--no-sandbox'); o.add_argument('--disable-gpu'); o.add_argument('--window-size=390,844'); o.add_argument('--force-device-scale-factor=1')
+          d=webdriver.Chrome(options=o)
+          try:
+            d.get('http://127.0.0.1:8000/index.html?release-audit=1'); time.sleep(1)
+            assert d.execute_script('return document.documentElement.scrollWidth <= window.innerWidth + 1')
+            html=d.find_element(By.TAG_NAME,'html'); assert html.get_attribute('lang')=='en' and html.get_attribute('dir')=='ltr'
+            portrait=d.find_element(By.CSS_SELECTOR,'.portrait-frame img')
+            assert (d.execute_script('return arguments[0].naturalWidth',portrait),d.execute_script('return arguments[0].naturalHeight',portrait))==(800,800)
+            hero=d.find_element(By.CSS_SELECTOR,'header.hero').text
+            assert 'View Royal Honour' in hero and 'Print / Save CV' not in hero
+            d.save_screenshot('.release-evidence/01-en-home.png')
+
+            d.execute_script("document.body.classList.add('menu-open')"); time.sleep(.3)
+            panel=d.find_element(By.CSS_SELECTOR,'.mobile-panel'); bg=d.execute_script('return getComputedStyle(arguments[0]).backgroundColor',panel)
+            assert bg in ('rgb(252, 253, 253)','rgb(255, 255, 255)'),bg
+            acts=d.find_elements(By.CSS_SELECTOR,'.sidebar-downloads .resource-download'); assert len(acts)==5,len(acts)
+            for el in acts:
+                assert 36<=el.rect['height']<=54,(el.text,el.rect['height'])
+                fs=float(d.execute_script('return parseFloat(getComputedStyle(arguments[0]).fontSize)',el)); assert fs<=15.5,(el.text,fs)
+            assert any('Dr_Adeelah_Qattan_Personal_Photo.jpg' in el.get_attribute('href') for el in acts if el.tag_name=='a')
+            d.save_screenshot('.release-evidence/02-en-menu.png')
+
+            d.execute_script("document.body.classList.remove('menu-open'); toggleLanguage();"); time.sleep(.3)
+            html=d.find_element(By.TAG_NAME,'html'); assert html.get_attribute('lang')=='ar' and html.get_attribute('dir')=='rtl'
+            d.execute_script("document.body.classList.add('menu-open')"); time.sleep(.3)
+            txt=d.find_element(By.CSS_SELECTOR,'.mobile-panel').text
+            for x in ['تحميل الصورة الشخصية','تحميل النبذة التعريفية','تحميل السيرة الذاتية','طباعة / حفظ السيرة']: assert x in txt,x
+            d.save_screenshot('.release-evidence/03-ar-menu.png')
+
+            d.execute_script("document.body.classList.remove('menu-open'); location.hash='royal';"); time.sleep(.8)
+            cert=d.find_element(By.CSS_SELECTOR,'.royal-document img')
+            nw=d.execute_script('return arguments[0].naturalWidth',cert); nh=d.execute_script('return arguments[0].naturalHeight',cert)
+            assert (nw,nh)==(800,1024),(nw,nh)
+            assert abs((cert.rect['width']/cert.rect['height'])-(nw/nh))<.025
+            assert cert.rect['width']<=345
+            royal=d.find_element(By.CSS_SELECTOR,'section#royal'); assert not royal.find_elements(By.CSS_SELECTOR,'.royal-document a'); assert not royal.find_elements(By.CSS_SELECTOR,'a[download]')
+            d.save_screenshot('.release-evidence/04-ar-royal.png')
+
+            src=d.page_source
+            for x in ['atqattan@hotmail.com','adeelahqattan@gmail.com','2nd Medical Education Conference','Healthcare Artificial Intelligence','3rd Medical Education Conference','Innovation in Medical Education','4th Medical Education Conference','AI and Medical Education: Partnership for Resilient Healthcare','5th Medical Education Leadership Summit','From Innovation to Measurable Impact and Sustainable System','From AI to Responsible Intelligence','Conference Committee Chair','رئيسة لجنة المؤتمر']:
+                assert x in src,x
+          finally: d.quit()
+          PY
+          cat > .release-evidence/FINAL_RELEASE_PASS.txt <<'EOF'
+          FINAL CLEAN RELEASE MOBILE AUDIT: PASS
+          Viewport: 390x844
+          EN/LTR: PASS
+          AR/RTL: PASS
+          Portrait asset 800x800: PASS
+          Full medal certificate 800x1024, display-only, uncropped: PASS
+          Side actions compact and bilingual: PASS
+          CV + Speaker Bio links: PASS
+          Conferences 2023-2026: PASS
+          Both emails: PASS
+          No horizontal overflow: PASS
+          EOF
+      - name: Commit final evidence to release branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .release-evidence
+          git commit -m 'test: final clean mobile release evidence'
+          git push origin HEAD:release/final-mobile-20260815

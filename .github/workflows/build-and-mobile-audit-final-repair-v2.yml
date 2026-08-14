@@ -1,0 +1,148 @@
+name: Build and mobile audit final repair v2
+on:
+  push:
+    paths:
+      - '.github/workflows/build-and-mobile-audit-final-repair-v2.yml'
+permissions:
+  contents: write
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: canonical-repair-final-20260815
+          fetch-depth: 0
+      - name: Install validation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pil
+          python3 -m pip install --user --break-system-packages --quiet selenium
+          command -v google-chrome >/dev/null || command -v google-chrome-stable >/dev/null
+      - name: Apply canonical UI patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/final_release.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('index.html'); t=p.read_text()
+          t=t.replace('.mobile-panel{padding:17px 20px 22px!important;', '.mobile-panel{background:#FCFDFD!important;padding:17px 20px 22px!important;')
+          t=t.replace('.mobile-panel{padding:15px 18px 20px!important;', '.mobile-panel{background:#FCFDFD!important;padding:15px 18px 20px!important;')
+          p.write_text(t)
+          PY
+      - name: Build portrait-based social preview
+        run: |
+          python3 - <<'PY'
+          from PIL import Image,ImageDraw,ImageFont
+          src=Image.open('assets/Dr_Adeelah_Qattan_Personal_Photo.jpg').convert('RGB')
+          canvas=Image.new('RGB',(1200,630),(245,250,250)); d=ImageDraw.Draw(canvas)
+          teal=(15,61,68); gold=(201,169,97)
+          src.thumbnail((560,560),Image.Resampling.LANCZOS); canvas.paste(src,(40,(630-src.height)//2))
+          d.rectangle((640,0,1200,630),fill=teal); d.rectangle((640,0,1200,7),fill=gold)
+          reg='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'; bold='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+          f1=ImageFont.truetype(bold,45); f2=ImageFont.truetype(reg,27); f3=ImageFont.truetype(bold,18)
+          d.text((700,135),'DR. ADEELAH',font=f1,fill='white'); d.text((700,195),'TALAT QATTAN',font=f1,fill=(184,221,225))
+          d.text((700,288),'Executive Healthcare Portfolio',font=f2,fill='white')
+          for y,s in [(354,'Academic Affairs & Training'),(390,'Medical Education & Training'),(426,'Restorative Dentistry')]: d.text((700,y),s,font=f3,fill=(225,235,236))
+          canvas.save('assets/share-preview.jpg',quality=91,optimize=True)
+          PY
+      - name: Static asset and content audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          for p,size,minimum in [('assets/Dr_Adeelah_Qattan_Personal_Photo.jpg',(800,800),50000),('assets/King_Fahd_Medal_Certificate_2019_Final.jpg',(800,1024),50000),('assets/share-preview.jpg',(1200,630),40000)]:
+              q=Path(p); assert q.exists() and q.stat().st_size>minimum,(p,q.stat().st_size if q.exists() else 0)
+              im=Image.open(p); im.verify(); im=Image.open(p); assert im.size==size,(p,im.size,size)
+          for p in ['assets/Dr_Adeelah_Qattan_CV_2026.pdf','assets/Dr_Adeelah_Qattan_Speaker_Bio_Bilingual.pdf']:
+              q=Path(p); assert q.exists() and q.stat().st_size>50000,p; assert q.read_bytes()[:5]==b'%PDF-'
+          html=Path('index.html').read_text()
+          required=['atqattan@hotmail.com','adeelahqattan@gmail.com','2nd Medical Education Conference','Healthcare Artificial Intelligence','3rd Medical Education Conference','Innovation in Medical Education','4th Medical Education Conference','AI and Medical Education: Partnership for Resilient Healthcare','5th Medical Education Leadership Summit','From Innovation to Measurable Impact and Sustainable System','From AI to Responsible Intelligence','Conference Committee Chair','رئيسة لجنة المؤتمر','Download Personal Photo','تحميل الصورة الشخصية','Download Speaker Bio (PDF)','تحميل النبذة التعريفية (PDF)','Download CV (PDF)','تحميل السيرة الذاتية (PDF)']
+          for x in required: assert x in html,x
+          PY
+      - name: Chrome mobile audit 390x844
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit/mobile
+          python3 -m http.server 8000 --bind 127.0.0.1 >/tmp/http.log 2>&1 & SERVER=$!
+          trap 'kill $SERVER || true' EXIT
+          sleep 2
+          python3 - <<'PY'
+          import time
+          from selenium import webdriver
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.chrome.options import Options
+          o=Options(); o.add_argument('--headless=new'); o.add_argument('--no-sandbox'); o.add_argument('--disable-gpu'); o.add_argument('--window-size=390,844'); o.add_argument('--force-device-scale-factor=1')
+          d=webdriver.Chrome(options=o)
+          try:
+            d.get('http://127.0.0.1:8000/index.html?final-audit=2'); time.sleep(1)
+            assert d.execute_script('return document.documentElement.scrollWidth <= window.innerWidth + 1')
+            assert d.find_element(By.TAG_NAME,'html').get_attribute('lang')=='en'
+            portrait=d.find_element(By.CSS_SELECTOR,'.portrait-frame img')
+            assert (d.execute_script('return arguments[0].naturalWidth',portrait),d.execute_script('return arguments[0].naturalHeight',portrait))==(800,800)
+            hero=d.find_element(By.CSS_SELECTOR,'header.hero').text
+            assert 'View Royal Honour' in hero and 'Print / Save CV' not in hero
+            d.save_screenshot('audit/mobile/01-en-home.png')
+
+            d.execute_script("document.body.classList.add('menu-open')"); time.sleep(.3)
+            panel=d.find_element(By.CSS_SELECTOR,'.mobile-panel'); bg=d.execute_script('return getComputedStyle(arguments[0]).backgroundColor',panel)
+            assert bg in ('rgb(252, 253, 253)','rgb(255, 255, 255)'),bg
+            actions=d.find_elements(By.CSS_SELECTOR,'.sidebar-downloads .resource-download'); assert len(actions)==5,len(actions)
+            for el in actions:
+                assert 36 <= el.rect['height'] <= 54,(el.text,el.rect['height'])
+                fs=float(d.execute_script('return parseFloat(getComputedStyle(arguments[0]).fontSize)',el)); assert fs<=15.5,(el.text,fs)
+            photo=[x for x in actions if 'Download Personal Photo' in x.text][0]
+            assert 'Dr_Adeelah_Qattan_Personal_Photo.jpg' in photo.get_attribute('href')
+            d.save_screenshot('audit/mobile/02-en-menu.png')
+
+            d.execute_script("document.body.classList.remove('menu-open'); toggleLanguage();"); time.sleep(.3)
+            assert d.find_element(By.TAG_NAME,'html').get_attribute('lang')=='ar'; assert d.find_element(By.TAG_NAME,'html').get_attribute('dir')=='rtl'
+            d.execute_script("document.body.classList.add('menu-open')"); time.sleep(.3)
+            txt=d.find_element(By.CSS_SELECTOR,'.mobile-panel').text
+            for x in ['تحميل الصورة الشخصية','تحميل النبذة التعريفية','تحميل السيرة الذاتية','طباعة / حفظ السيرة']: assert x in txt,x
+            d.save_screenshot('audit/mobile/03-ar-menu.png')
+
+            d.execute_script("document.body.classList.remove('menu-open'); location.hash='royal';"); time.sleep(.8)
+            cert=d.find_element(By.CSS_SELECTOR,'.royal-document img')
+            nw=d.execute_script('return arguments[0].naturalWidth',cert); nh=d.execute_script('return arguments[0].naturalHeight',cert)
+            assert (nw,nh)==(800,1024),(nw,nh)
+            assert abs((cert.rect['width']/cert.rect['height'])-(nw/nh))<.025
+            assert cert.rect['width']<=345,cert.rect['width']
+            royal=d.find_element(By.CSS_SELECTOR,'section#royal'); assert not royal.find_elements(By.CSS_SELECTOR,'.royal-document a'); assert not royal.find_elements(By.CSS_SELECTOR,'a[download]')
+            d.save_screenshot('audit/mobile/04-royal-full-certificate.png')
+          finally: d.quit()
+          PY
+      - name: Write final pass marker
+        run: |
+          mkdir -p audit
+          cat > audit/FINAL_PASS.txt <<'EOF'
+          FINAL MOBILE RELEASE GATE: PASS
+          Viewport: 390x844
+          Portrait: 800x800 verified JPEG, clean standalone download asset
+          Medal certificate: 800x1024 verified JPEG, full aspect ratio, display-only
+          Side actions: 5 compact bilingual actions, 36-54px height
+          Language: EN/LTR and AR/RTL verified
+          CV and Speaker Bio: PDF signatures and size verified
+          Conferences 2023-2026 and both emails: verified in HTML
+          Social preview: 1200x630 rebuilt from verified portrait
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-mobile-audit-v2
+          path: audit
+          if-no-files-found: error
+      - name: Commit only after all gates pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html assets/share-preview.jpg audit/FINAL_PASS.txt scripts/final_release.py
+          git commit -m 'fix: pass canonical mobile portfolio release gate' || true
+          git push origin HEAD:canonical-repair-final-20260815

@@ -1,0 +1,112 @@
+name: Live Pages final mobile audit
+on:
+  push:
+    paths:
+      - '.github/workflows/live-pages-final-audit.yml'
+permissions:
+  contents: write
+jobs:
+  live-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Wait for GitHub Pages release
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://cpdaatc.github.io/adeelah-qattan-portfolio/?live-release=20260815'
+          for i in $(seq 1 36); do
+            BODY="$(curl -fsSL "$URL" || true)"
+            if printf '%s' "$BODY" | grep -q 'release-20260815-final' && printf '%s' "$BODY" | grep -q 'Dr_Adeelah_Qattan_Personal_Photo.jpg'; then
+              echo 'LIVE RELEASE DETECTED'
+              exit 0
+            fi
+            echo "waiting for Pages build ($i/36)"
+            sleep 5
+          done
+          echo 'Timed out waiting for live release' >&2
+          exit 1
+      - name: Install Selenium
+        run: python3 -m pip install --user --break-system-packages --quiet selenium
+      - name: Audit public site at 390x844
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .release-evidence
+          python3 - <<'PY'
+          import time
+          from selenium import webdriver
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.chrome.options import Options
+          o=Options(); o.add_argument('--headless=new'); o.add_argument('--no-sandbox'); o.add_argument('--disable-gpu'); o.add_argument('--window-size=390,844'); o.add_argument('--force-device-scale-factor=1')
+          d=webdriver.Chrome(options=o)
+          base='https://cpdaatc.github.io/adeelah-qattan-portfolio/?live-audit=20260815'
+          try:
+            d.get(base); time.sleep(2)
+            assert d.execute_script('return document.documentElement.scrollWidth <= window.innerWidth + 1')
+            html=d.find_element(By.TAG_NAME,'html'); assert html.get_attribute('lang')=='en' and html.get_attribute('dir')=='ltr'
+            portrait=d.find_element(By.CSS_SELECTOR,'.portrait-frame img')
+            assert (d.execute_script('return arguments[0].naturalWidth',portrait),d.execute_script('return arguments[0].naturalHeight',portrait))==(800,800)
+            assert 'Dr_Adeelah_Qattan_Personal_Photo.jpg' in portrait.get_attribute('src')
+            hero=d.find_element(By.CSS_SELECTOR,'header.hero').text
+            assert 'View Royal Honour' in hero and 'Print / Save CV' not in hero
+            d.save_screenshot('.release-evidence/LIVE-01-en-home.png')
+
+            d.execute_script("document.body.classList.add('menu-open')"); time.sleep(.4)
+            panel=d.find_element(By.CSS_SELECTOR,'.mobile-panel'); bg=d.execute_script('return getComputedStyle(arguments[0]).backgroundColor',panel)
+            assert bg in ('rgb(252, 253, 253)','rgb(255, 255, 255)'),bg
+            acts=d.find_elements(By.CSS_SELECTOR,'.sidebar-downloads .resource-download'); assert len(acts)==5,len(acts)
+            for el in acts:
+                assert 36<=el.rect['height']<=54,(el.text,el.rect['height'])
+                fs=float(d.execute_script('return parseFloat(getComputedStyle(arguments[0]).fontSize)',el)); assert fs<=15.5,(el.text,fs)
+            assert any('Dr_Adeelah_Qattan_Personal_Photo.jpg' in el.get_attribute('href') for el in acts if el.tag_name=='a')
+            d.save_screenshot('.release-evidence/LIVE-02-en-menu.png')
+
+            d.execute_script("document.body.classList.remove('menu-open'); toggleLanguage();"); time.sleep(.4)
+            html=d.find_element(By.TAG_NAME,'html'); assert html.get_attribute('lang')=='ar' and html.get_attribute('dir')=='rtl'
+            d.execute_script("document.body.classList.add('menu-open')"); time.sleep(.4)
+            txt=d.find_element(By.CSS_SELECTOR,'.mobile-panel').text
+            for x in ['تحميل الصورة الشخصية','تحميل النبذة التعريفية','تحميل السيرة الذاتية','طباعة / حفظ السيرة']: assert x in txt,x
+            d.save_screenshot('.release-evidence/LIVE-03-ar-menu.png')
+
+            d.execute_script("document.body.classList.remove('menu-open'); location.hash='royal';"); time.sleep(1)
+            cert=d.find_element(By.CSS_SELECTOR,'.royal-document img')
+            nw=d.execute_script('return arguments[0].naturalWidth',cert); nh=d.execute_script('return arguments[0].naturalHeight',cert)
+            assert (nw,nh)==(800,1024),(nw,nh)
+            assert 'King_Fahd_Medal_Certificate_2019_Final.jpg' in cert.get_attribute('src')
+            assert abs((cert.rect['width']/cert.rect['height'])-(nw/nh))<.025
+            assert cert.rect['width']<=345
+            royal=d.find_element(By.CSS_SELECTOR,'section#royal'); assert not royal.find_elements(By.CSS_SELECTOR,'.royal-document a'); assert not royal.find_elements(By.CSS_SELECTOR,'a[download]')
+            d.save_screenshot('.release-evidence/LIVE-04-ar-royal.png')
+
+            src=d.page_source
+            for x in ['atqattan@hotmail.com','adeelahqattan@gmail.com','2nd Medical Education Conference','Healthcare Artificial Intelligence','3rd Medical Education Conference','Innovation in Medical Education','4th Medical Education Conference','AI and Medical Education: Partnership for Resilient Healthcare','5th Medical Education Leadership Summit','From Innovation to Measurable Impact and Sustainable System','From AI to Responsible Intelligence','Conference Committee Chair','رئيسة لجنة المؤتمر','share-preview.jpg?v=release-20260815-final']:
+                assert x in src,x
+          finally: d.quit()
+          PY
+          cat > .release-evidence/LIVE_PAGES_FINAL_PASS.txt <<'EOF'
+          LIVE GITHUB PAGES MOBILE AUDIT: PASS
+          Public URL audited: https://cpdaatc.github.io/adeelah-qattan-portfolio/
+          Viewport: 390x844
+          Portrait: verified live 800x800 clean standalone asset
+          King Fahd Medal certificate: verified live 800x1024, full ratio, display-only
+          Side actions: 5 compact bilingual controls
+          EN/LTR and AR/RTL: verified live
+          CV + Speaker Bio links: present
+          Conferences 2023-2026 + Conference Committee Chair: present
+          Both emails: present
+          Social preview reference: verified
+          Horizontal overflow: none
+          EOF
+      - name: Persist live evidence and remove one-time workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/live-pages-final-audit.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'test: record live mobile Pages release evidence'
+          git push origin HEAD:main

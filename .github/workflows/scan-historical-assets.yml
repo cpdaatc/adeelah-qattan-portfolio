@@ -1,0 +1,41 @@
+name: Scan historical image assets
+
+on:
+  push:
+    paths:
+      - '.github/workflows/scan-historical-assets.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install image tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+      - name: Scan every historical portrait and medal image blob
+        shell: bash
+        run: |
+          set -u
+          mkdir -p /tmp/scan
+          git rev-list --objects --all | grep -Ei '(portrait|king_fahd_medal).*(jpg|jpeg|webp)$' | sort -u > /tmp/candidates.txt || true
+          echo '=== HISTORICAL IMAGE CANDIDATES ==='
+          while read -r sha path; do
+            [ -n "${sha:-}" ] || continue
+            [ "$(git cat-file -t "$sha" 2>/dev/null)" = blob ] || continue
+            ext="${path##*.}"
+            out="/tmp/scan/${sha}.${ext}"
+            git cat-file blob "$sha" > "$out"
+            size=$(wc -c < "$out")
+            if identify "$out" >/tmp/id.txt 2>/tmp/id.err; then
+              dims=$(identify -format '%wx%h' "$out" 2>/dev/null || echo '?')
+              echo "VALID|$size|$dims|$sha|$path"
+            else
+              err=$(tr '\n' ' ' </tmp/id.err | head -c 160)
+              echo "INVALID|$size|?|$sha|$path|$err"
+            fi
+          done < /tmp/candidates.txt | sort -t'|' -k1,1 -k2,2nr

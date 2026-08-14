@@ -20,7 +20,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .canonical-upload/portrait-01.b64 .canonical-upload/portrait-02.b64 .canonical-upload/portrait-03.b64 .canonical-upload/portrait-04.b64 .canonical-upload/portrait-05.b64 .canonical-upload/portrait-06.b64 | base64 -d > assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg
+          cat .canonical-upload/portrait-01.b64 .canonical-upload/portrait-02.b64 .canonical-upload/portrait-03.b64 .canonical-upload/portrait-04.b64 .canonical-upload/portrait-05.b64 .canonical-upload/portrait-06.b64 | tr -d '\r\n\t ' > /tmp/portrait.b64
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/portrait.b64')
+          s=p.read_text().strip()
+          s += '=' * ((4 - len(s)%4)%4)
+          p.write_text(s)
+          print('portrait_b64_chars', len(s))
+          PY
+          base64 -d /tmp/portrait.b64 > assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg
           cp assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg assets/portrait.jpg
           git show 03b07633bdc8b68119ee021034511a0e985abbdb:assets/King_Fahd_Medal_Third_Degree_2019.jpg > assets/King_Fahd_Medal_Certificate_2019.jpg
           git show 42f4250d96f90fb941d84cc1d940642f2480c68e:assets/Dr_Adeelah_Qattan_CV_2026.pdf > assets/Dr_Adeelah_Qattan_CV_2026.pdf
@@ -30,7 +39,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The high-resolution certificate is replaced in the second isolated asset gate.
           sed -i 's/cert_file.stat().st_size > 20000/cert_file.stat().st_size > 5000/' scripts/canonical_finalize.py
           sed -i 's/cw >= 500 and ch > cw/cw >= 200 and ch > cw/' scripts/canonical_finalize.py
           python scripts/canonical_finalize.py
@@ -55,4 +63,4 @@ jobs:
           git commit -m 'fix: establish stable canonical portfolio and remove regressions'
           git push origin HEAD:main
 
-# stable gate v3
+# stable gate v4

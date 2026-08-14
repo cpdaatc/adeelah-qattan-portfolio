@@ -1,0 +1,95 @@
+name: Recover canonical binary assets
+on:
+  push:
+    paths:
+      - '.github/workflows/recover-canonical-binary-assets.yml'
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch all refs
+        run: |
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --force
+          git fetch --tags --force
+      - name: Scan historical Base64 blobs for valid images and PDFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pillow
+          mkdir -p /tmp/recovered /tmp/candidates
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess, base64, hashlib, re, os
+          from PIL import Image
+          from io import BytesIO
+
+          expected_portrait='0372be80e75f3b0601bf8ff20c0afb7c9a97fbfe6e5106b0d2675106a7e1781d'
+          objects=subprocess.check_output(['git','rev-list','--objects','--all'],text=True,errors='ignore').splitlines()
+          seen=set(); rows=[]
+          for line in objects:
+              parts=line.split(' ',1)
+              if len(parts)!=2: continue
+              sha,path=parts
+              low=path.lower()
+              if sha in seen: continue
+              if not (low.endswith('.b64') or 'base64' in low or low.endswith('.txt')): continue
+              seen.add(sha)
+              try: raw=subprocess.check_output(['git','cat-file','blob',sha])
+              except: continue
+              if len(raw)>2500000: continue
+              try: text=raw.decode('ascii','ignore')
+              except: continue
+              s=''.join(text.split())
+              if len(s)<1000: continue
+              decodings=[]
+              for kind in ('standard','urlsafe'):
+                  try:
+                      pad='='*((4-len(s)%4)%4)
+                      data=(base64.b64decode(s+pad,validate=False) if kind=='standard' else base64.urlsafe_b64decode(s+pad))
+                      decodings.append((kind,data))
+                  except: pass
+              for kind,data in decodings:
+                  h=hashlib.sha256(data).hexdigest()
+                  if h==expected_portrait:
+                      Path('/tmp/recovered/portrait-canonical.jpg').write_bytes(data)
+                      print('FOUND_EXACT_PORTRAIT',path,sha,len(data),h)
+                  if data.startswith(b'%PDF-'):
+                      rows.append((path,sha,kind,'PDF','-',len(data),h))
+                      continue
+                  try:
+                      im=Image.open(BytesIO(data)); im.verify(); im=Image.open(BytesIO(data)); w,hgt=im.size
+                  except: continue
+                  rows.append((path,sha,kind,im.format,f'{w}x{hgt}',len(data),h))
+                  out=Path('/tmp/candidates')/f'{sha[:10]}_{kind}_{w}x{hgt}_{Path(path).stem}.jpg'
+                  try:
+                      Image.open(BytesIO(data)).convert('RGB').save(out,'JPEG',quality=90)
+                  except: pass
+                  # high-resolution full certificate target family
+                  if hgt>w and w>=750 and hgt>=950 and len(data)>=50000:
+                      cert=Path('/tmp/recovered')/f'certificate_candidate_{w}x{hgt}_{sha[:10]}.jpg'
+                      cert.write_bytes(data)
+                      print('FOUND_CERT_CANDIDATE',path,sha,w,hgt,len(data),h)
+                  if w==1254 and hgt==1254 and len(data)>200000:
+                      Path('/tmp/recovered/portrait-original-1254.jpg').write_bytes(data)
+                      print('FOUND_ORIGINAL_PORTRAIT',path,sha,len(data),h)
+          with open('/tmp/recovery.tsv','w') as f:
+              f.write('path\tblob\tdecode\ttype\tdimensions\tbytes\tsha256\n')
+              for r in sorted(rows,key=lambda x:(x[3],x[4],x[5]),reverse=True): f.write('\t'.join(map(str,r))+'\n')
+          print('\n--- TOP CANDIDATES ---')
+          for r in sorted(rows,key=lambda x:x[5],reverse=True)[:80]: print('\t'.join(map(str,r)))
+          print('\nRECOVERED_FILES')
+          for p in Path('/tmp/recovered').glob('*'): print(p.name,p.stat().st_size)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: canonical-binary-recovery
+          path: |
+            /tmp/recovery.tsv
+            /tmp/recovered
+            /tmp/candidates
+          retention-days: 2

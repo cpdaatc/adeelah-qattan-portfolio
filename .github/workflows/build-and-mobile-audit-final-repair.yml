@@ -1,0 +1,171 @@
+name: Build and mobile audit final repair
+on:
+  push:
+    paths:
+      - '.github/workflows/build-and-mobile-audit-final-repair.yml'
+permissions:
+  contents: write
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: canonical-repair-final-20260815
+          fetch-depth: 0
+      - name: Install validation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pil
+          python3 -m pip install --user --quiet selenium
+          which google-chrome || which google-chrome-stable
+      - name: Apply canonical UI patch
+        run: python3 scripts/final_release.py
+      - name: Build portrait-based social preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from PIL import Image,ImageDraw,ImageFont
+          from pathlib import Path
+          src=Image.open('assets/Dr_Adeelah_Qattan_Personal_Photo.jpg').convert('RGB')
+          canvas=Image.new('RGB',(1200,630),(245,250,250))
+          teal=(15,61,68); teal2=(46,139,150); gold=(201,169,97); ink=(23,33,38)
+          # Portrait is only resized/cropped; facial appearance is not altered.
+          side=560
+          src.thumbnail((side,side),Image.Resampling.LANCZOS)
+          canvas.paste(src,(40,(630-src.height)//2))
+          d=ImageDraw.Draw(canvas)
+          d.rectangle((640,0,1200,630),fill=teal)
+          d.rectangle((640,0,1200,7),fill=gold)
+          regular='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+          bold='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+          f1=ImageFont.truetype(bold,45); f2=ImageFont.truetype(regular,27); f3=ImageFont.truetype(bold,18)
+          d.text((700,135),'DR. ADEELAH',font=f1,fill='white')
+          d.text((700,195),'TALAT QATTAN',font=f1,fill=(184,221,225))
+          d.text((700,288),'Executive Healthcare Portfolio',font=f2,fill='white')
+          d.text((700,354),'Academic Affairs & Training',font=f3,fill=(225,235,236))
+          d.text((700,390),'Medical Education & Training',font=f3,fill=(225,235,236))
+          d.text((700,426),'Restorative Dentistry',font=f3,fill=(225,235,236))
+          canvas.save('assets/share-preview.jpg',quality=91,optimize=True)
+          PY
+      - name: Validate release assets and files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          checks=[
+            ('assets/Dr_Adeelah_Qattan_Personal_Photo.jpg',(800,800),50000),
+            ('assets/King_Fahd_Medal_Certificate_2019_Final.jpg',(800,1024),50000),
+            ('assets/share-preview.jpg',(1200,630),40000),
+          ]
+          for p,size,min_bytes in checks:
+            q=Path(p); assert q.stat().st_size>min_bytes,(p,q.stat().st_size)
+            im=Image.open(p); im.verify(); im=Image.open(p)
+            assert im.size==size,(p,im.size,size)
+            print('PASS image',p,im.size,q.stat().st_size)
+          for p in ['assets/Dr_Adeelah_Qattan_CV_2026.pdf','assets/Dr_Adeelah_Qattan_Speaker_Bio_Bilingual.pdf']:
+            q=Path(p); assert q.exists() and q.stat().st_size>50000,(p,q.stat().st_size if q.exists() else 0)
+            assert q.read_bytes()[:5]==b'%PDF-',p
+            print('PASS pdf',p,q.stat().st_size)
+          PY
+      - name: Mobile Chrome audit at 390x844
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit/mobile
+          python3 -m http.server 8000 --bind 127.0.0.1 >/tmp/portfolio-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 2
+          python3 - <<'PY'
+          import os,time
+          from selenium import webdriver
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.chrome.options import Options
+          from selenium.webdriver.support.ui import WebDriverWait
+          from selenium.webdriver.support import expected_conditions as EC
+          opts=Options(); opts.add_argument('--headless=new'); opts.add_argument('--no-sandbox'); opts.add_argument('--disable-gpu'); opts.add_argument('--window-size=390,844'); opts.add_argument('--force-device-scale-factor=1')
+          driver=webdriver.Chrome(options=opts)
+          wait=WebDriverWait(driver,15)
+          base='http://127.0.0.1:8000/index.html'
+          try:
+            driver.get(base+'?audit=final')
+            wait.until(lambda d:d.execute_script('return document.readyState')=='complete')
+            time.sleep(.5)
+            assert driver.execute_script('return document.documentElement.scrollWidth <= window.innerWidth + 1')
+            assert driver.find_element(By.TAG_NAME,'html').get_attribute('lang')=='en'
+            hero=driver.find_element(By.CSS_SELECTOR,'.portrait-frame img')
+            assert driver.execute_script('return arguments[0].naturalWidth',hero)==800
+            assert driver.execute_script('return arguments[0].naturalHeight',hero)==800
+            hero_text=driver.find_element(By.CSS_SELECTOR,'header.hero').text
+            assert 'Print / Save CV' not in hero_text
+            assert 'View Royal Honour' in hero_text
+            driver.save_screenshot('audit/mobile/01-en-home.png')
+
+            menu_btn=driver.find_element(By.CSS_SELECTOR,'.menu-btn'); driver.execute_script('arguments[0].click()',menu_btn); time.sleep(.35)
+            assert 'menu-open' in driver.find_element(By.TAG_NAME,'body').get_attribute('class')
+            actions=driver.find_elements(By.CSS_SELECTOR,'.sidebar-downloads .resource-download')
+            assert len(actions)==5,len(actions)
+            for el in actions:
+              h=el.rect['height']; fs=float(driver.execute_script("return parseFloat(getComputedStyle(arguments[0]).fontSize)",el))
+              assert 36 <= h <= 54,(el.text,h)
+              assert fs <= 15.5,(el.text,fs)
+            panel=driver.find_element(By.CSS_SELECTOR,'.mobile-panel')
+            bg=driver.execute_script('return getComputedStyle(arguments[0]).backgroundColor',panel)
+            assert bg not in ('rgba(0, 0, 0, 0)','transparent'),bg
+            photo_link=next(x for x in actions if 'Download Personal Photo' in x.text)
+            assert 'Dr_Adeelah_Qattan_Personal_Photo.jpg' in photo_link.get_attribute('href')
+            driver.save_screenshot('audit/mobile/02-en-menu.png')
+
+            driver.execute_script("document.body.classList.remove('menu-open'); if (typeof toggleLanguage==='function') toggleLanguage();")
+            time.sleep(.3)
+            assert driver.find_element(By.TAG_NAME,'html').get_attribute('lang')=='ar'
+            assert driver.find_element(By.TAG_NAME,'html').get_attribute('dir')=='rtl'
+            driver.execute_script("document.body.classList.add('menu-open')")
+            time.sleep(.25)
+            ar_menu=driver.find_element(By.CSS_SELECTOR,'.mobile-panel').text
+            assert 'تحميل الصورة الشخصية' in ar_menu
+            assert 'تحميل النبذة التعريفية' in ar_menu
+            assert 'تحميل السيرة الذاتية' in ar_menu
+            assert 'طباعة / حفظ السيرة' in ar_menu
+            driver.save_screenshot('audit/mobile/03-ar-menu.png')
+
+            driver.execute_script("document.body.classList.remove('menu-open'); window.location.hash='royal';")
+            time.sleep(.7)
+            cert=driver.find_element(By.CSS_SELECTOR,'.royal-document img')
+            nw=driver.execute_script('return arguments[0].naturalWidth',cert); nh=driver.execute_script('return arguments[0].naturalHeight',cert)
+            assert (nw,nh)==(800,1024),(nw,nh)
+            rw=cert.rect['width']; rh=cert.rect['height']
+            assert abs((rw/rh)-(nw/nh)) < .025,(rw,rh,nw,nh)
+            assert rw <= 345,rw
+            royal=driver.find_element(By.CSS_SELECTOR,'section#royal')
+            assert not royal.find_elements(By.CSS_SELECTOR,'a[download]')
+            assert not royal.find_elements(By.CSS_SELECTOR,'.royal-document a')
+            driver.save_screenshot('audit/mobile/04-royal-full-certificate.png')
+
+            html=driver.page_source
+            for token in ['atqattan@hotmail.com','adeelahqattan@gmail.com','2nd Medical Education Conference','3rd Medical Education Conference','4th Medical Education Conference','5th Medical Education Leadership Summit','Conference Committee Chair','رئيسة لجنة المؤتمر']:
+              assert token in html,token
+            print('PASS mobile Chrome audit')
+          finally:
+            driver.quit()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-mobile-audit-screenshots
+          path: audit/mobile
+          if-no-files-found: error
+      - name: Commit tested repair to repair branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html assets/share-preview.jpg scripts/final_release.py
+          git commit -m 'fix: canonical mobile portfolio repair' || true
+          git push origin HEAD:canonical-repair-final-20260815

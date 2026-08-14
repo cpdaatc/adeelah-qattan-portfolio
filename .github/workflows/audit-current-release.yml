@@ -1,0 +1,46 @@
+name: Audit current portfolio assets
+
+on:
+  push:
+    paths:
+      - '.github/workflows/audit-current-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install audit tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils imagemagick
+      - name: Inspect canonical assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '--- FILE METADATA ---'
+          file assets/Dr_Adeelah_Qattan_Portrait_Original.jpg
+          identify assets/Dr_Adeelah_Qattan_Portrait_Original.jpg
+          file assets/King_Fahd_Medal_Certificate_Full_2019.jpg
+          identify assets/King_Fahd_Medal_Certificate_Full_2019.jpg
+          file assets/Dr_Adeelah_Qattan_CV_2026.pdf
+          pdfinfo assets/Dr_Adeelah_Qattan_CV_2026.pdf | grep -E 'Pages|Page size'
+          pdftotext assets/Dr_Adeelah_Qattan_CV_2026.pdf /tmp/cv.txt
+          echo '--- CV REQUIRED TOKENS ---'
+          for token in \
+            'atqattan@hotmail.com' \
+            'adeelahqattan@gmail.com' \
+            '2nd Medical Education Conference' \
+            'Healthcare Artificial Intelligence' \
+            '3rd Medical Education Conference' \
+            'Innovation in Medical Education' \
+            '4th Medical Education Conference' \
+            'AI and Medical Education: Partnership for Resilient Healthcare' \
+            '5th Medical Education Leadership Summit' \
+            'From Innovation to Measurable Impact and Sustainable System' \
+            'From AI to Responsible Intelligence' \
+            'Conference Committee Chair'; do
+              if grep -Fq "$token" /tmp/cv.txt; then echo "PASS: $token"; else echo "FAIL: $token"; exit 1; fi
+          done
+          echo 'PASS: current CV contains all required conference/email updates'

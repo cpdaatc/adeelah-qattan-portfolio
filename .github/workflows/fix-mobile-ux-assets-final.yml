@@ -1,0 +1,113 @@
+name: Final mobile UX and asset repair
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-mobile-ux-assets-final.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch mobile typography, actions and assets
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('index.html')
+          t = p.read_text(encoding='utf-8')
+
+          old_nav = '.mobile-panel a{display:block;text-decoration:none;color:var(--teal-950);font:600 1.5rem/1.3 "Cormorant Garamond",serif;padding:13px 0;border-bottom:1px solid var(--line)}'
+          new_nav = '.mobile-panel > a{display:block;text-decoration:none;color:var(--teal-950);font:600 .95rem/1.45 Outfit,sans-serif;padding:10px 0;border-bottom:1px solid var(--line)}html[lang="ar"] .mobile-panel > a{font-family:"Noto Kufi Arabic",sans-serif}'
+          if old_nav not in t:
+              raise SystemExit('expected mobile nav rule not found')
+          t = t.replace(old_nav, new_nav, 1)
+
+          t = t.replace('assets/portrait.jpg?v=20260814-portrait-final', 'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-final')
+          t = t.replace('assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-certificate-final', 'assets/King_Fahd_Medal_Certificate_Full_2019.jpg?v=20260814-mobile-final')
+
+          hs = t.index('<header class="hero"')
+          he = t.index('</header>', hs)
+          hero = t[hs:he]
+          hero2, n = re.subn(r'\s*<button class="btn btn-ghost"[^>]*onclick="window\.print\(\)"[^>]*>.*?</button>', '', hero, count=1, flags=re.S)
+          if n != 1:
+              raise SystemExit('hero print button not found exactly once')
+          t = t[:hs] + hero2 + t[he:]
+
+          marker = '/* MOBILE-UX-REFINEMENT-FINAL */'
+          css = '''
+    /* MOBILE-UX-REFINEMENT-FINAL */
+    @media(max-width:980px){
+      .mobile-panel{padding:20px 22px 24px;overflow-y:auto}
+      .mobile-panel .sidebar-downloads{gap:8px;margin-top:16px;padding-bottom:24px}
+      .mobile-panel .sidebar-downloads .resource-download{display:flex!important;width:100%;min-height:44px;padding:9px 13px!important;border-radius:12px!important;font:600 .78rem/1.35 Outfit,sans-serif!important;border-bottom:0!important;white-space:normal;text-align:center}
+      html[lang="ar"] .mobile-panel .sidebar-downloads .resource-download{font-family:"Noto Kufi Arabic",sans-serif!important;font-size:.74rem!important}
+      .mobile-panel .sidebar-downloads .action-icon{font-size:.9rem!important;line-height:1;flex:0 0 auto}
+      .royal-document{max-width:380px;margin-left:auto;margin-right:auto}
+      .royal-document img{width:100%;height:auto;object-fit:contain}
+    }
+    @media(max-width:650px){
+      .mobile-panel{padding:18px 20px 22px}
+      .mobile-panel > a{font-size:.9rem;padding:9px 0}
+      .mobile-panel .sidebar-downloads{gap:7px;margin-top:14px}
+      .mobile-panel .sidebar-downloads .resource-download{min-height:42px;padding:8px 12px!important;font-size:.74rem!important}
+      html[lang="ar"] .mobile-panel .sidebar-downloads .resource-download{font-size:.72rem!important}
+      .royal-document{max-width:340px;padding:8px}
+      .royal-document figcaption{padding:9px 6px 3px}
+      .royal-document figcaption strong{font-size:.66rem}
+    }
+'''
+          if marker not in t:
+              t = t.replace('    @media(prefers-reduced-motion:reduce)', css + '    @media(prefers-reduced-motion:reduce)', 1)
+
+          p.write_text(t, encoding='utf-8')
+          PY
+
+      - name: Verify requested behavior
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          t = Path('index.html').read_text(encoding='utf-8')
+          assert '.mobile-panel > a{' in t
+          assert '.mobile-panel a{display:block;text-decoration:none;color:var(--teal-950);font:600 1.5rem' not in t
+          assert 'font:600 .78rem/1.35 Outfit,sans-serif!important' in t
+          assert 'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-final' in t
+          assert 'assets/King_Fahd_Medal_Certificate_Full_2019.jpg?v=20260814-mobile-final' in t
+          assert Path('assets/Dr_Adeelah_Qattan_Portrait_Original.jpg').stat().st_size > 50000
+          assert Path('assets/King_Fahd_Medal_Certificate_Full_2019.jpg').stat().st_size > 60000
+
+          hs = t.index('<header class="hero"')
+          he = t.index('</header>', hs)
+          assert 'window.print()' not in t[hs:he]
+
+          ms = t.index('<div class="mobile-panel"')
+          me = t.index('</div>\n\n  <header', ms)
+          menu = t[ms:me]
+          assert '🖼️' in menu and 'Download Personal Photo' in menu and 'تحميل الصورة الشخصية' in menu
+          assert '📄' in menu and 'Download Speaker Bio' in menu and 'تحميل النبذة التعريفية' in menu
+          assert '📘' in menu and 'Download CV' in menu and 'تحميل السيرة الذاتية' in menu
+          assert '🖨️' in menu and 'window.print()' in menu
+
+          rs = t.index('<section class="royal" id="royal">')
+          re_ = t.index('</section>', rs)
+          royal = t[rs:re_]
+          assert '<a ' not in royal
+          assert 'download' not in royal
+          print('PASS: mobile typography, compact actions, clean portrait download, full certificate display-only, side print only')
+          PY
+
+      - name: Commit final repair
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'fix: refine mobile menu buttons portrait and medal certificate'
+          git push origin HEAD:main

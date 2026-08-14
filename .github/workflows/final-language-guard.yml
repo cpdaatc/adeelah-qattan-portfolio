@@ -1,0 +1,35 @@
+name: Final language isolation guard
+on:
+  push:
+    paths:
+      - '.github/workflows/final-language-guard.yml'
+permissions:
+  contents: write
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce strict language isolation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          t=p.read_text(encoding='utf-8')
+          old='.ar{display:none} html[lang="ar"] .en{display:none!important}'
+          new='.ar{display:none} html[lang="en"] .ar{display:none!important} html[lang="ar"] .en{display:none!important}'
+          if old not in t:
+              raise SystemExit('language CSS marker not found')
+          t=t.replace(old,new,1)
+          t=t.replace('Academic Affairs & Training','Academic Affairs &amp; Training')
+          assert 'html[lang="en"] .ar{display:none!important}' in t
+          assert 'html[lang="ar"] .en{display:none!important}' in t
+          p.write_text(t,encoding='utf-8')
+          PY
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'fix: enforce final bilingual isolation guard'
+          git push origin HEAD:main

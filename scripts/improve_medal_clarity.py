@@ -2,12 +2,12 @@ from pathlib import Path
 p=Path('index.html')
 t=p.read_text(encoding='utf-8')
 old='''      <figure class="royal-document">
-        <img src="assets/King_Fahd_Medal_Third_Degree_2019.jpg" alt="King Fahd Medal — Third Degree, 2019 documentation">
+        <img src="assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-2" alt="King Fahd Medal — Third Degree, 2019 documentation">
         <figcaption><span class="en">King Fahd Medal — Third Degree · 2019</span><span class="ar">ميدالية الملك فهد — الدرجة الثالثة · 2019</span></figcaption>
       </figure>'''
 new='''      <figure class="royal-document">
-        <a class="royal-image-link" href="assets/King_Fahd_Medal_Third_Degree_2019.jpg" target="_blank" rel="noopener" aria-label="Open King Fahd Medal image full size">
-          <img src="assets/King_Fahd_Medal_Third_Degree_2019.jpg" alt="King Fahd Medal — Third Degree, 2019 documentation" loading="eager" decoding="sync">
+        <a class="royal-image-link" href="assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-2" target="_blank" rel="noopener" aria-label="Open King Fahd Medal image full size">
+          <img src="assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-2" alt="King Fahd Medal — Third Degree, 2019 documentation" loading="eager" decoding="sync">
         </a>
         <figcaption>
           <strong><span class="en">King Fahd Medal — Third Degree · 2019</span><span class="ar">ميدالية الملك فهد — الدرجة الثالثة · 2019</span></strong>

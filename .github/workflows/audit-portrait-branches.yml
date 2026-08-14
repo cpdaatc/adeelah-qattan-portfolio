@@ -1,0 +1,50 @@
+name: Audit portrait branches
+on:
+  push:
+    paths:
+      - '.github/workflows/audit-portrait-branches.yml'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Render branch portraits
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pil
+          mkdir -p audit
+          python3 - <<'PY'
+          from PIL import Image,ImageFile,ImageDraw
+          import subprocess,io
+          ImageFile.LOAD_TRUNCATED_IMAGES=False
+          branches=['main','portrait-original-exact','portrait-final','portrait-final-2','portrait-fix','portrait-fix-2','fix-clean-portrait-asset']
+          cards=[]
+          for b in branches:
+            found=False
+            for p in ['assets/portrait.jpg','assets/portrait.webp','assets/Dr_Adeelah_Qattan_Portrait_Original.jpg','assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg']:
+              try: raw=subprocess.check_output(['git','show',f'origin/{b}:{p}'],stderr=subprocess.DEVNULL)
+              except: continue
+              try:
+                im=Image.open(io.BytesIO(raw)); im.verify(); im=Image.open(io.BytesIO(raw)).convert('RGB')
+              except: continue
+              im.thumbnail((260,260),Image.Resampling.LANCZOS)
+              c=Image.new('RGB',(320,340),'white'); c.paste(im,((320-im.width)//2,10+(260-im.height)//2)); d=ImageDraw.Draw(c)
+              d.text((10,280),b,fill='black'); d.text((10,302),f'{p} {len(raw)}B',fill='black')
+              cards.append(c); found=True; break
+            if not found:
+              c=Image.new('RGB',(320,340),'white'); d=ImageDraw.Draw(c); d.text((10,150),b+' NO VALID IMAGE',fill='red'); cards.append(c)
+          cols=3; rows=(len(cards)+cols-1)//cols; sheet=Image.new('RGB',(320*cols,340*rows),'#ddd')
+          for i,c in enumerate(cards): sheet.paste(c,((i%cols)*320,(i//cols)*340))
+          sheet.save('audit/portrait-branches.jpg',quality=92)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portrait-branch-audit
+          path: audit/portrait-branches.jpg
+          if-no-files-found: error

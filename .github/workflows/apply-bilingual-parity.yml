@@ -1,0 +1,35 @@
+name: Apply bilingual parity
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-bilingual-parity.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply localization audit
+        run: python scripts/localize_static_content.py
+      - name: Verify language controls and downloads
+        run: |
+          grep -q 'Download CV (PDF)' index.html
+          grep -q 'تحميل السيرة الذاتية (PDF)' index.html
+          grep -q 'Download Personal Photo' index.html
+          grep -q 'تحميل الصورة الشخصية' index.html
+          grep -q 'Download Speaker Bio (PDF)' index.html
+          grep -q 'تحميل النبذة التعريفية (PDF)' index.html
+          grep -q 'د. عديلة طلعت' index.html
+          grep -q 'تكريم ملكي · 2019' index.html
+          grep -q '01 / القيادة' index.html
+      - name: Commit localization
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'fix: enforce Arabic English content parity'
+          git push origin HEAD:main

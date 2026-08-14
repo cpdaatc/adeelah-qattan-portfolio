@@ -17,14 +17,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build verified clean assets
+      - name: Build standalone portrait asset
         shell: bash
         run: |
           set -euo pipefail
           cp assets/portrait.jpg assets/Dr_Adeelah_Qattan_Portrait_Original.jpg
-          base64 -d .tmp/cert500.b64 > assets/King_Fahd_Medal_Certificate_Full_2019.jpg
           test "$(stat -c%s assets/Dr_Adeelah_Qattan_Portrait_Original.jpg)" -gt 100000
-          test "$(stat -c%s assets/King_Fahd_Medal_Certificate_Full_2019.jpg)" -gt 50000
+          test "$(stat -c%s assets/King_Fahd_Medal_Third_Degree_2019.jpg)" -gt 30000
 
       - name: Patch mobile typography actions and asset references
         shell: bash
@@ -38,14 +37,14 @@ jobs:
           t = p.read_text(encoding='utf-8')
 
           old_nav = '.mobile-panel a{display:block;text-decoration:none;color:var(--teal-950);font:600 1.5rem/1.3 "Cormorant Garamond",serif;padding:13px 0;border-bottom:1px solid var(--line)}'
-          new_nav = '.mobile-panel > a{display:block;text-decoration:none;color:var(--teal-950);font:600 .95rem/1.45 Outfit,sans-serif;padding:10px 0;border-bottom:1px solid var(--line)}html[lang="ar"] .mobile-panel > a{font-family:"Noto Kufi Arabic",sans-serif}'
+          new_nav = '.mobile-panel > a{display:block;text-decoration:none;color:var(--teal-950);font:600 .94rem/1.42 Outfit,sans-serif;padding:9px 0;border-bottom:1px solid var(--line)}html[lang="ar"] .mobile-panel > a{font-family:"Noto Kufi Arabic",sans-serif}'
           if old_nav in t:
               t = t.replace(old_nav, new_nav, 1)
 
           t = re.sub(r'assets/(?:portrait\.jpg|Dr_Adeelah_Qattan_Portrait_Original\.jpg)(?:\?v=[^"\']+)?',
-                     'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-final', t)
+                     'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-ux', t)
           t = re.sub(r'assets/(?:King_Fahd_Medal_Third_Degree_2019|King_Fahd_Medal_Certificate_Full_2019)\.jpg(?:\?v=[^"\']+)?',
-                     'assets/King_Fahd_Medal_Certificate_Full_2019.jpg?v=20260814-mobile-final', t)
+                     'assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-mobile-ux', t)
           t = t.replace('download="Dr_Adeelah_Qattan_Portrait.jpg"', 'download="Dr_Adeelah_Qattan_Portrait_Original.jpg"')
 
           hs = t.index('<header class="hero"')
@@ -59,23 +58,23 @@ jobs:
           /* MOBILE-UX-REFINEMENT-FINAL */
           @media(max-width:980px){
             .mobile-panel{padding:18px 22px 24px;overflow-y:auto}
-            .mobile-panel > a{font-size:.92rem!important;line-height:1.4!important;padding:9px 0!important}
-            .mobile-panel .sidebar-downloads{gap:7px;margin-top:14px;padding-bottom:22px}
-            .mobile-panel .sidebar-downloads .resource-download{display:flex!important;width:100%;min-height:42px!important;height:auto!important;padding:8px 12px!important;border-radius:11px!important;font:600 .76rem/1.3 Outfit,sans-serif!important;border-bottom:0!important;white-space:normal;text-align:center;box-shadow:0 7px 16px rgba(15,61,68,.12)!important}
+            .mobile-panel > a{font-size:.92rem!important;line-height:1.38!important;padding:8px 0!important}
+            .mobile-panel .sidebar-downloads{gap:7px;margin-top:13px;padding-bottom:22px}
+            .mobile-panel .sidebar-downloads .resource-download{display:flex!important;width:100%;min-height:42px!important;height:auto!important;padding:8px 12px!important;border-radius:11px!important;font:600 .76rem/1.28 Outfit,sans-serif!important;border-bottom:0!important;white-space:normal;text-align:center;box-shadow:0 7px 16px rgba(15,61,68,.11)!important}
             html[lang="ar"] .mobile-panel .sidebar-downloads .resource-download{font-family:"Noto Kufi Arabic",sans-serif!important;font-size:.72rem!important}
             .mobile-panel .sidebar-downloads .action-icon{font-size:.86rem!important;line-height:1;flex:0 0 auto}
-            .royal-document{max-width:390px;margin-left:auto;margin-right:auto;padding:8px}
-            .royal-document img{display:block;width:100%;height:auto!important;object-fit:contain!important;max-height:none!important}
+            .royal-document{max-width:320px!important;margin-left:auto!important;margin-right:auto!important;padding:7px!important}
+            .royal-document img{display:block;width:100%;height:auto!important;object-fit:contain!important;max-height:none!important;image-rendering:auto}
           }
           @media(max-width:650px){
             .mobile-panel{padding:16px 20px 20px}
-            .mobile-panel > a{font-size:.88rem!important;padding:8px 0!important}
-            .mobile-panel .sidebar-downloads{gap:6px;margin-top:12px}
-            .mobile-panel .sidebar-downloads .resource-download{min-height:40px!important;padding:7px 11px!important;font-size:.72rem!important}
-            html[lang="ar"] .mobile-panel .sidebar-downloads .resource-download{font-size:.69rem!important}
-            .royal-document{max-width:350px;padding:7px}
-            .royal-document figcaption{padding:8px 6px 3px}
-            .royal-document figcaption strong{font-size:.64rem}
+            .mobile-panel > a{font-size:.86rem!important;padding:7px 0!important}
+            .mobile-panel .sidebar-downloads{gap:6px;margin-top:11px}
+            .mobile-panel .sidebar-downloads .resource-download{min-height:40px!important;padding:7px 11px!important;font-size:.71rem!important}
+            html[lang="ar"] .mobile-panel .sidebar-downloads .resource-download{font-size:.68rem!important}
+            .royal-document{max-width:285px!important;padding:6px!important}
+            .royal-document figcaption{padding:7px 5px 2px!important}
+            .royal-document figcaption strong{font-size:.62rem!important}
           }
           '''
           if marker not in t:
@@ -95,11 +94,11 @@ jobs:
           t = Path('index.html').read_text(encoding='utf-8')
           assert '.mobile-panel > a{' in t
           assert '.mobile-panel a{display:block;text-decoration:none;color:var(--teal-950);font:600 1.5rem' not in t
-          assert 'font:600 .76rem/1.3 Outfit,sans-serif!important' in t
-          assert 'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-final' in t
-          assert 'assets/King_Fahd_Medal_Certificate_Full_2019.jpg?v=20260814-mobile-final' in t
+          assert 'font:600 .76rem/1.28 Outfit,sans-serif!important' in t
+          assert 'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-ux' in t
+          assert 'assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-mobile-ux' in t
           assert Path('assets/Dr_Adeelah_Qattan_Portrait_Original.jpg').stat().st_size > 100000
-          assert Path('assets/King_Fahd_Medal_Certificate_Full_2019.jpg').stat().st_size > 50000
+          assert Path('assets/King_Fahd_Medal_Third_Degree_2019.jpg').stat().st_size > 30000
 
           hs = t.index('<header class="hero"')
           he = t.index('</header>', hs)
@@ -116,8 +115,8 @@ jobs:
           royal = t[rs:re_]
           assert '<a ' not in royal
           assert 'download' not in royal
-          assert 'King_Fahd_Medal_Certificate_Full_2019.jpg' in royal
-          print('PASS: compact mobile typography/buttons, standalone portrait download, full certificate display only, side print only')
+          assert 'King_Fahd_Medal_Third_Degree_2019.jpg' in royal
+          print('PASS: compact mobile typography/buttons, standalone portrait download, full certificate display-only, print only in side menu')
           PY
 
       - name: Commit repaired portfolio
@@ -126,6 +125,6 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html assets/Dr_Adeelah_Qattan_Portrait_Original.jpg assets/King_Fahd_Medal_Certificate_Full_2019.jpg
-          git commit -m 'fix: refine mobile menu buttons portrait and medal certificate'
+          git add index.html assets/Dr_Adeelah_Qattan_Portrait_Original.jpg
+          git commit -m 'fix: compact mobile menu and correct portrait download'
           git push origin HEAD:main

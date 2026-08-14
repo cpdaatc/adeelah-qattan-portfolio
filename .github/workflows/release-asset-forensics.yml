@@ -12,62 +12,86 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Collect unique historical image assets
+      - name: Fetch all repository history
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin '+refs/heads/*:refs/remotes/origin/*' --force
+          git fetch --tags --force
+      - name: Collect unique historical portrait and certificate blobs
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p /tmp/candidates /tmp/portraits /tmp/certs
-          : > /tmp/seen
-          for ref in $(git for-each-ref --format='%(refname)' refs/remotes/origin refs/heads); do
-            git ls-tree -r -l "$ref" 2>/dev/null | awk '$5 ~ /^assets\// && tolower($5) ~ /\.(jpg|jpeg|png|webp)$/ {print $3" "$4" "$5}' | while read -r sha size path; do
-              low=$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')
-              case "$low" in
-                *portrait*|*medal*|*certificate*) ;;
-                *) continue;;
-              esac
-              if grep -qx "$sha" /tmp/seen; then continue; fi
-              echo "$sha" >> /tmp/seen
-              ext="${path##*.}"
-              short=${sha:0:10}
-              base=$(basename "$path" | tr ' /' '__')
-              out="/tmp/candidates/${short}_${base}"
-              git cat-file blob "$sha" > "$out" || continue
-              if identify "$out" >/dev/null 2>&1; then
-                dims=$(identify -format '%wx%h' "$out")
-                bytes=$(stat -c%s "$out")
-                printf '%s\t%s\t%s\t%s\n' "$short" "$dims" "$bytes" "$path" >> /tmp/assets.tsv
-                if printf '%s' "$low" | grep -q portrait; then cp "$out" /tmp/portraits/; else cp "$out" /tmp/certs/; fi
-              fi
-            done
-          done
-          sort -u /tmp/assets.tsv -o /tmp/assets.tsv
-          cat /tmp/assets.tsv
-      - name: Build contact sheets
+          : > /tmp/objects.txt
+          : > /tmp/assets.tsv
+          git rev-list --objects --all \
+            | grep -Ei '^[0-9a-f]+ assets/.*(portrait|medal|certificate).*\.(jpg|jpeg|png|webp)$' \
+            | sort -u -k1,1 > /tmp/objects.txt || true
+          python -m pip install --quiet pillow
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess, hashlib
+          from PIL import Image
+
+          rows=[]
+          for line in Path('/tmp/objects.txt').read_text().splitlines():
+              if not line.strip():
+                  continue
+              sha, path = line.split(' ',1)
+              low=path.lower()
+              data=subprocess.check_output(['git','cat-file','blob',sha])
+              ext=Path(path).suffix.lower() or '.jpg'
+              out=Path('/tmp/candidates')/f'{sha[:12]}_{Path(path).name}'
+              out.write_bytes(data)
+              try:
+                  with Image.open(out) as im:
+                      im.verify()
+                  with Image.open(out) as im:
+                      w,h=im.size
+                      fmt=im.format
+              except Exception:
+                  out.unlink(missing_ok=True)
+                  continue
+              digest=hashlib.sha256(data).hexdigest()
+              rows.append((sha,w,h,len(data),digest,path,out.name))
+              dst=Path('/tmp/portraits' if 'portrait' in low else '/tmp/certs')/out.name
+              dst.write_bytes(data)
+          with open('/tmp/assets.tsv','w',encoding='utf-8') as f:
+              f.write('blob_sha\twidth\theight\tbytes\tsha256\tpath\tfile\n')
+              for r in sorted(rows,key=lambda x:(x[5],x[0])):
+                  f.write('\t'.join(map(str,r))+'\n')
+          print(Path('/tmp/assets.tsv').read_text())
+          if not rows:
+              raise SystemExit('No historical portrait/certificate image blobs found')
+          PY
+      - name: Build visual contact sheets
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          from PIL import Image, ImageDraw, ImageFont
+          from PIL import Image, ImageDraw
           from pathlib import Path
-          def make(src, out, cell=(260,320)):
-              files=sorted(Path(src).iterdir()) if Path(src).exists() else []
-              if not files: return
+          def make(src,out,cell):
+              files=sorted(Path(src).glob('*'))
+              if not files:
+                  Image.new('RGB',(cell[0],cell[1]),'white').save(out)
+                  return
               cols=4; rows=(len(files)+cols-1)//cols
               sheet=Image.new('RGB',(cols*cell[0],rows*cell[1]),'white')
               d=ImageDraw.Draw(sheet)
               for i,p in enumerate(files):
-                  try: im=Image.open(p).convert('RGB')
-                  except: continue
-                  im.thumbnail((cell[0]-20,cell[1]-80),Image.Resampling.LANCZOS)
-                  x=(i%cols)*cell[0]+(cell[0]-im.width)//2
-                  y=(i//cols)*cell[1]+8
+                  with Image.open(p) as original:
+                      size=original.size
+                      im=original.convert('RGB')
+                  im.thumbnail((cell[0]-20,cell[1]-90),Image.Resampling.LANCZOS)
+                  cx=(i%cols)*cell[0]; cy=(i//cols)*cell[1]
+                  x=cx+(cell[0]-im.width)//2; y=cy+8
                   sheet.paste(im,(x,y))
-                  label=p.name[:42]
-                  d.text(((i%cols)*cell[0]+8,(i//cols)*cell[1]+cell[1]-62),label,fill='black')
-                  d.text(((i%cols)*cell[0]+8,(i//cols)*cell[1]+cell[1]-42),f'{Image.open(p).size} {p.stat().st_size}B',fill='black')
+                  d.text((cx+7,cy+cell[1]-68),p.name[:38],fill='black')
+                  d.text((cx+7,cy+cell[1]-48),f'{size[0]}x{size[1]}  {p.stat().st_size}B',fill='black')
               sheet.save(out,quality=92)
-          make('/tmp/portraits','/tmp/portrait-contact.jpg')
+          make('/tmp/portraits','/tmp/portrait-contact.jpg',(260,320))
           make('/tmp/certs','/tmp/certificate-contact.jpg',(300,390))
           PY
       - uses: actions/upload-artifact@v4

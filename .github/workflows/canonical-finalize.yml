@@ -16,20 +16,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore staged portrait, certificate and final CV
+      - name: Restore exact portrait, certificate and final CV
         shell: bash
         run: |
           set -euo pipefail
-          cat .canonical-upload/portrait-01.b64 .canonical-upload/portrait-02.b64 .canonical-upload/portrait-03.b64 .canonical-upload/portrait-04.b64 .canonical-upload/portrait-05.b64 .canonical-upload/portrait-06.b64 | tr -d '\r\n\t ' > /tmp/portrait.b64
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('/tmp/portrait.b64')
-          s=p.read_text().strip()
-          s += '=' * ((4 - len(s)%4)%4)
-          p.write_text(s)
-          print('portrait_b64_chars', len(s))
-          PY
-          base64 -d /tmp/portrait.b64 > assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg
+          cat .canonical-upload/portrait-01.b64 .canonical-upload/portrait-02.b64 .canonical-upload/portrait-03.b64 .canonical-upload/portrait-04.b64 .canonical-upload/portrait-05.b64 .canonical-upload/portrait-06.b64 | tr -d '\r\n\t ' > /tmp/portrait-prefix.b64
+          test "$(wc -c < /tmp/portrait-prefix.b64)" -eq 107708
+          echo '8840e263904551fd3d5f8c424acec6d3494cdedb1977d04bbd272b96890d793a  /tmp/portrait-prefix.b64' | sha256sum -c -
+          cat /tmp/portrait-prefix.b64 .canonical-upload/portrait-tail.b64 | tr -d '\r\n\t ' > /tmp/portrait-exact.b64
+          test "$(wc -c < /tmp/portrait-exact.b64)" -eq 114372
+          base64 -d /tmp/portrait-exact.b64 > assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg
+          echo '0372e53f7d7d156eec9c2af0bc2e7b10dd67fb73e85534592119093dc982541a  assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg' | sha256sum -c -
           cp assets/Dr_Adeelah_Qattan_Portrait_High_Resolution.jpg assets/portrait.jpg
           git show 03b07633bdc8b68119ee021034511a0e985abbdb:assets/King_Fahd_Medal_Third_Degree_2019.jpg > assets/King_Fahd_Medal_Certificate_2019.jpg
           git show 42f4250d96f90fb941d84cc1d940642f2480c68e:assets/Dr_Adeelah_Qattan_CV_2026.pdf > assets/Dr_Adeelah_Qattan_CV_2026.pdf
@@ -63,4 +60,4 @@ jobs:
           git commit -m 'fix: establish stable canonical portfolio and remove regressions'
           git push origin HEAD:main
 
-# stable gate v4
+# stable gate exact portrait v5

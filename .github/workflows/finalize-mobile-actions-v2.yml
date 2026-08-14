@@ -10,31 +10,62 @@ permissions:
   contents: write
 
 jobs:
-  apply:
+  fix:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Apply action buttons
+
+      - name: Patch royal certificate display
         run: |
-          python -c 'from pathlib import Path; import re; p=Path("index.html"); t=p.read_text(encoding="utf-8"); t=t.replace("<a href=\"#royal\" class=\"btn btn-primary\"><span class=\"en\">View Royal Honour</span><span class=\"ar\">عرض التكريم الملكي</span></a>","<a href=\"#royal\" class=\"btn btn-primary\"><span class=\"action-icon\" aria-hidden=\"true\">🏅</span><span class=\"en\">View Royal Honour</span><span class=\"ar\">عرض التكريم الملكي</span></a>"); pattern=r"<div class=\"sidebar-downloads\">.*?</div>\n  </div>\n\n  <header class=\"hero\""; repl="<div class=\"sidebar-downloads\">\n      <a class=\"btn btn-primary resource-download\" href=\"#royal\"><span class=\"action-icon\" aria-hidden=\"true\">🏅</span><span class=\"en\">View Royal Honour</span><span class=\"ar\">عرض التكريم الملكي</span></a>\n      <a class=\"btn btn-primary resource-download\" href=\"assets/portrait.webp?v=20260814-10\" download=\"Dr_Adeelah_Qattan_Portrait.webp\"><span class=\"action-icon\" aria-hidden=\"true\">🖼️</span><span class=\"en\">Download Personal Photo</span><span class=\"ar\">تحميل الصورة الشخصية</span></a>\n      <a class=\"btn btn-primary resource-download\" href=\"assets/Dr_Adeelah_Qattan_Speaker_Bio_Bilingual.pdf?v=20260814-10\" download><span class=\"action-icon\" aria-hidden=\"true\">📄</span><span class=\"en\">Download Speaker Bio (PDF)</span><span class=\"ar\">تحميل النبذة التعريفية (PDF)</span></a>\n      <a class=\"btn btn-primary resource-download\" href=\"assets/Dr_Adeelah_Qattan_CV_2026.pdf?v=20260814-10\" download><span class=\"action-icon\" aria-hidden=\"true\">📘</span><span class=\"en\">Download CV (PDF)</span><span class=\"ar\">تحميل السيرة الذاتية (PDF)</span></a>\n    </div>\n  </div>\n\n  <header class=\"hero\""; t,n=re.subn(pattern,repl,t,count=1,flags=re.S); assert n==1; t=t.replace(".sidebar-downloads .action-icon{font-size:1.05rem;line-height:1}",".sidebar-downloads .action-icon{font-size:1.05rem;line-height:1}.hero-actions .action-icon{font-size:1.05rem;line-height:1}") if ".hero-actions .action-icon{" not in t else t; p.write_text(t,encoding="utf-8")'
-      - name: Verify
+          python <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('index.html')
+          t = p.read_text(encoding='utf-8')
+
+          new_figure = '''      <figure class="royal-document royal-document-display-only">
+        <img src="assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-12" alt="King Fahd Medal — Third Degree, 2019 full certificate" loading="eager" decoding="async">
+        <figcaption>
+          <strong><span class="en">King Fahd Medal — Third Degree · 2019</span><span class="ar">ميدالية الملك فهد — الدرجة الثالثة · 2019</span></strong>
+        </figcaption>
+      </figure>'''
+
+          t, n = re.subn(r'      <figure class="royal-document">.*?      </figure>', new_figure, t, count=1, flags=re.S)
+          if n != 1:
+              raise SystemExit('royal figure not found')
+
+          t = t.replace('max-width:300px}.royal-image-link{display:block;overflow:hidden;border-radius:11px;background:#fff;cursor:zoom-in}.royal-document img{display:block;width:100%;height:auto;border-radius:11px;filter:contrast(1.05) saturate(1.02);transform:translateZ(0)}',
+                        'max-width:420px}.royal-document img{display:block;width:100%;height:auto;object-fit:contain;border-radius:11px;filter:contrast(1.03) saturate(1.01);transform:translateZ(0);pointer-events:none;user-select:none}')
+          t = t.replace('.royal-document figcaption small{display:block;margin-top:4px;font-size:.61rem;color:#6b777c;font-weight:500}', '')
+          t = t.replace('.royal-grid{grid-template-columns:minmax(280px,300px) 1fr}', '.royal-grid{grid-template-columns:minmax(340px,420px) 1fr}')
+          t = t.replace('.royal-document{max-width:300px;margin:auto}', '.royal-document{max-width:420px;margin:auto}')
+          p.write_text(t, encoding='utf-8')
+          PY
+
+      - name: Verify display only
         run: |
-          grep -q '🏅' index.html
-          grep -q '🖼️' index.html
-          grep -q '📄' index.html
-          grep -q '📘' index.html
-          grep -q 'assets/portrait.webp?v=20260814-10' index.html
-          grep -q 'Conference Committee Chair' index.html
-          grep -q 'رئيسة لجنة المؤتمر' index.html
-          grep -q 'atqattan@hotmail.com' index.html
-          grep -q 'adeelahqattan@gmail.com' index.html
-          echo 'verified'
+          python <<'PY'
+          from pathlib import Path
+          t = Path('index.html').read_text(encoding='utf-8')
+          start = t.index('<section class="royal" id="royal">')
+          end = t.index('</section>', start)
+          royal = t[start:end]
+          assert 'King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-12' in royal
+          assert 'King_Fahd_Medal_Closeup_2019.jpg' not in royal
+          assert 'royal-image-link' not in royal
+          assert 'Tap or click' not in royal
+          assert 'اضغط على الصورة' not in royal
+          assert '<a ' not in royal
+          assert 'download' not in royal
+          print('verified: full certificate display only')
+          PY
+
       - name: Commit
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git commit -m 'fix: unify mobile actions and working photo download'
+          git commit -m 'fix: show full King Fahd certificate as display only'
           git push origin HEAD:main

@@ -47,3 +47,5 @@ jobs:
           git add -A
           git commit -m 'fix: establish canonical portfolio and remove regression workflows'
           git push origin HEAD:main
+
+# canonical rerun v2

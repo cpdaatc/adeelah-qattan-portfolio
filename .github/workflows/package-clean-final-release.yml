@@ -1,0 +1,67 @@
+name: Package clean final release
+on:
+  push:
+    paths:
+      - '.github/workflows/package-clean-final-release.yml'
+permissions:
+  contents: write
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require tested repair gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin canonical-repair-final-20260815 release/final-mobile-20260815
+          git show origin/canonical-repair-final-20260815:audit/FINAL_PASS.txt | grep -q 'FINAL MOBILE RELEASE GATE: PASS'
+      - name: Build clean release tree from latest main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B release/final-mobile-20260815 origin/release/final-mobile-20260815
+          git show origin/canonical-repair-final-20260815:index.html > index.html
+          git show origin/canonical-repair-final-20260815:assets/Dr_Adeelah_Qattan_Personal_Photo.jpg > assets/Dr_Adeelah_Qattan_Personal_Photo.jpg
+          git show origin/canonical-repair-final-20260815:assets/King_Fahd_Medal_Certificate_2019_Final.jpg > assets/King_Fahd_Medal_Certificate_2019_Final.jpg
+          git show origin/canonical-repair-final-20260815:assets/share-preview.jpg > assets/share-preview.jpg
+          rm -rf .github/workflows .canonical-upload .canonical-release .final-stage .exact-assets .release12 .tmp audit scripts
+      - name: Verify packaged release
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pil
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          for p,size,minimum in [
+            ('assets/Dr_Adeelah_Qattan_Personal_Photo.jpg',(800,800),50000),
+            ('assets/King_Fahd_Medal_Certificate_2019_Final.jpg',(800,1024),50000),
+            ('assets/share-preview.jpg',(1200,630),40000),
+          ]:
+              q=Path(p); assert q.exists() and q.stat().st_size>minimum,(p,q.stat().st_size if q.exists() else 0)
+              im=Image.open(p); im.verify(); im=Image.open(p); assert im.size==size,(p,im.size,size)
+          for p in ['assets/Dr_Adeelah_Qattan_CV_2026.pdf','assets/Dr_Adeelah_Qattan_Speaker_Bio_Bilingual.pdf']:
+              q=Path(p); assert q.exists() and q.stat().st_size>50000,p; assert q.read_bytes()[:5]==b'%PDF-'
+          t=Path('index.html').read_text()
+          required=['Dr_Adeelah_Qattan_Personal_Photo.jpg','King_Fahd_Medal_Certificate_2019_Final.jpg','share-preview.jpg?v=release-20260815-final','atqattan@hotmail.com','adeelahqattan@gmail.com','2nd Medical Education Conference','3rd Medical Education Conference','4th Medical Education Conference','5th Medical Education Leadership Summit','Conference Committee Chair','رئيسة لجنة المؤتمر','تحميل الصورة الشخصية','تحميل النبذة التعريفية (PDF)','تحميل السيرة الذاتية (PDF)','طباعة / حفظ السيرة']
+          for x in required: assert x in t,x
+          hs=t.index('<header class="hero"'); he=t.index('</header>',hs); hero=t[hs:he]
+          assert 'Print / Save CV' not in hero
+          rs=t.index('<section class="royal" id="royal">'); re=t.index('</section>',rs); royal=t[rs:re]
+          assert '<a ' not in royal and 'download=' not in royal and 'onclick=' not in royal
+          assert not Path('.github/workflows').exists()
+          print('PASS clean release package')
+          PY
+      - name: Commit clean release branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'release: canonical tested mobile portfolio'
+          git push --force-with-lease origin HEAD:release/final-mobile-20260815

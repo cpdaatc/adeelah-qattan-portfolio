@@ -1,0 +1,39 @@
+name: Bridge final assets to repair branch
+on:
+  push:
+    paths:
+      - '.github/workflows/bridge-final-assets-to-repair.yml'
+permissions:
+  contents: write
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: canonical-repair-final-20260815
+          fetch-depth: 0
+      - name: Download canonical portrait and certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          curl -fL --retry 2 'https://drive.usercontent.google.com/download?id=1F-lq3WbOT9QmXsHVF8OZ8_XgGgiN9Uil&export=download&confirm=t' -o assets/Dr_Adeelah_Qattan_Personal_Photo.jpg
+          curl -fL --retry 2 'https://drive.usercontent.google.com/download?id=1VJQB3J_XkKmBS3Gewt-xA08odPbU5Vlz&export=download&confirm=t' -o assets/King_Fahd_Medal_Certificate_2019_Final.jpg
+          python3 - <<'PY'
+          from PIL import Image
+          checks=[('assets/Dr_Adeelah_Qattan_Personal_Photo.jpg',(800,800)),('assets/King_Fahd_Medal_Certificate_2019_Final.jpg',(800,1024))]
+          for p,size in checks:
+              im=Image.open(p); im.verify(); im=Image.open(p)
+              assert im.size==size,(p,im.size,size)
+              print('VALID',p,im.size)
+          PY
+      - name: Commit assets only to repair branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/Dr_Adeelah_Qattan_Personal_Photo.jpg assets/King_Fahd_Medal_Certificate_2019_Final.jpg
+          git commit -m 'fix: add verified portrait and full medal certificate'
+          git push origin HEAD:canonical-repair-final-20260815

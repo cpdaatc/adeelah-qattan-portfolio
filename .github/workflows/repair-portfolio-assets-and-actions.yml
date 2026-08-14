@@ -17,6 +17,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Build verified clean assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp assets/portrait.jpg assets/Dr_Adeelah_Qattan_Portrait_Original.jpg
+          base64 -d .tmp/cert500.b64 > assets/King_Fahd_Medal_Certificate_Full_2019.jpg
+          test "$(stat -c%s assets/Dr_Adeelah_Qattan_Portrait_Original.jpg)" -gt 100000
+          test "$(stat -c%s assets/King_Fahd_Medal_Certificate_Full_2019.jpg)" -gt 50000
+
       - name: Patch mobile typography actions and asset references
         shell: bash
         run: |
@@ -33,8 +42,11 @@ jobs:
           if old_nav in t:
               t = t.replace(old_nav, new_nav, 1)
 
-          t = t.replace('assets/portrait.jpg?v=20260814-portrait-final', 'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-final')
-          t = t.replace('assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-certificate-final', 'assets/King_Fahd_Medal_Certificate_Full_2019.jpg?v=20260814-mobile-final')
+          t = re.sub(r'assets/(?:portrait\.jpg|Dr_Adeelah_Qattan_Portrait_Original\.jpg)(?:\?v=[^"\']+)?',
+                     'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-final', t)
+          t = re.sub(r'assets/(?:King_Fahd_Medal_Third_Degree_2019|King_Fahd_Medal_Certificate_Full_2019)\.jpg(?:\?v=[^"\']+)?',
+                     'assets/King_Fahd_Medal_Certificate_Full_2019.jpg?v=20260814-mobile-final', t)
+          t = t.replace('download="Dr_Adeelah_Qattan_Portrait.jpg"', 'download="Dr_Adeelah_Qattan_Portrait_Original.jpg"')
 
           hs = t.index('<header class="hero"')
           he = t.index('</header>', hs)
@@ -46,27 +58,30 @@ jobs:
           css = '''
           /* MOBILE-UX-REFINEMENT-FINAL */
           @media(max-width:980px){
-            .mobile-panel{padding:20px 22px 24px;overflow-y:auto}
-            .mobile-panel .sidebar-downloads{gap:8px;margin-top:16px;padding-bottom:24px}
-            .mobile-panel .sidebar-downloads .resource-download{display:flex!important;width:100%;min-height:44px;padding:9px 13px!important;border-radius:12px!important;font:600 .78rem/1.35 Outfit,sans-serif!important;border-bottom:0!important;white-space:normal;text-align:center}
-            html[lang="ar"] .mobile-panel .sidebar-downloads .resource-download{font-family:"Noto Kufi Arabic",sans-serif!important;font-size:.74rem!important}
-            .mobile-panel .sidebar-downloads .action-icon{font-size:.9rem!important;line-height:1;flex:0 0 auto}
-            .royal-document{max-width:380px;margin-left:auto;margin-right:auto}
-            .royal-document img{width:100%;height:auto;object-fit:contain}
+            .mobile-panel{padding:18px 22px 24px;overflow-y:auto}
+            .mobile-panel > a{font-size:.92rem!important;line-height:1.4!important;padding:9px 0!important}
+            .mobile-panel .sidebar-downloads{gap:7px;margin-top:14px;padding-bottom:22px}
+            .mobile-panel .sidebar-downloads .resource-download{display:flex!important;width:100%;min-height:42px!important;height:auto!important;padding:8px 12px!important;border-radius:11px!important;font:600 .76rem/1.3 Outfit,sans-serif!important;border-bottom:0!important;white-space:normal;text-align:center;box-shadow:0 7px 16px rgba(15,61,68,.12)!important}
+            html[lang="ar"] .mobile-panel .sidebar-downloads .resource-download{font-family:"Noto Kufi Arabic",sans-serif!important;font-size:.72rem!important}
+            .mobile-panel .sidebar-downloads .action-icon{font-size:.86rem!important;line-height:1;flex:0 0 auto}
+            .royal-document{max-width:390px;margin-left:auto;margin-right:auto;padding:8px}
+            .royal-document img{display:block;width:100%;height:auto!important;object-fit:contain!important;max-height:none!important}
           }
           @media(max-width:650px){
-            .mobile-panel{padding:18px 20px 22px}
-            .mobile-panel > a{font-size:.9rem;padding:9px 0}
-            .mobile-panel .sidebar-downloads{gap:7px;margin-top:14px}
-            .mobile-panel .sidebar-downloads .resource-download{min-height:42px;padding:8px 12px!important;font-size:.74rem!important}
-            html[lang="ar"] .mobile-panel .sidebar-downloads .resource-download{font-size:.72rem!important}
-            .royal-document{max-width:340px;padding:8px}
-            .royal-document figcaption{padding:9px 6px 3px}
-            .royal-document figcaption strong{font-size:.66rem}
+            .mobile-panel{padding:16px 20px 20px}
+            .mobile-panel > a{font-size:.88rem!important;padding:8px 0!important}
+            .mobile-panel .sidebar-downloads{gap:6px;margin-top:12px}
+            .mobile-panel .sidebar-downloads .resource-download{min-height:40px!important;padding:7px 11px!important;font-size:.72rem!important}
+            html[lang="ar"] .mobile-panel .sidebar-downloads .resource-download{font-size:.69rem!important}
+            .royal-document{max-width:350px;padding:7px}
+            .royal-document figcaption{padding:8px 6px 3px}
+            .royal-document figcaption strong{font-size:.64rem}
           }
           '''
           if marker not in t:
               t = t.replace('    @media(prefers-reduced-motion:reduce)', css + '    @media(prefers-reduced-motion:reduce)', 1)
+          else:
+              t = re.sub(r'/\* MOBILE-UX-REFINEMENT-FINAL \*/.*?(?=\s*@media\(prefers-reduced-motion:reduce\))', css.strip() + '\n    ', t, count=1, flags=re.S)
 
           p.write_text(t, encoding='utf-8')
           PY
@@ -79,11 +94,12 @@ jobs:
           from pathlib import Path
           t = Path('index.html').read_text(encoding='utf-8')
           assert '.mobile-panel > a{' in t
-          assert 'font:600 .78rem/1.35 Outfit,sans-serif!important' in t
+          assert '.mobile-panel a{display:block;text-decoration:none;color:var(--teal-950);font:600 1.5rem' not in t
+          assert 'font:600 .76rem/1.3 Outfit,sans-serif!important' in t
           assert 'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-final' in t
           assert 'assets/King_Fahd_Medal_Certificate_Full_2019.jpg?v=20260814-mobile-final' in t
-          assert Path('assets/Dr_Adeelah_Qattan_Portrait_Original.jpg').stat().st_size > 50000
-          assert Path('assets/King_Fahd_Medal_Certificate_Full_2019.jpg').stat().st_size > 60000
+          assert Path('assets/Dr_Adeelah_Qattan_Portrait_Original.jpg').stat().st_size > 100000
+          assert Path('assets/King_Fahd_Medal_Certificate_Full_2019.jpg').stat().st_size > 50000
 
           hs = t.index('<header class="hero"')
           he = t.index('</header>', hs)
@@ -92,7 +108,7 @@ jobs:
           ms = t.index('<div class="mobile-panel"')
           me = t.index('</div>\n\n  <header', ms)
           menu = t[ms:me]
-          for token in ['🖼️','Download Personal Photo','تحميل الصورة الشخصية','📄','Download Speaker Bio','تحميل النبذة التعريفية','📘','Download CV','تحميل السيرة الذاتية','🖨️','window.print()']:
+          for token in ['🏅','🖼️','Download Personal Photo','تحميل الصورة الشخصية','📄','Download Speaker Bio','تحميل النبذة التعريفية','📘','Download CV','تحميل السيرة الذاتية','🖨️','window.print()']:
               assert token in menu, token
 
           rs = t.index('<section class="royal" id="royal">')
@@ -100,7 +116,8 @@ jobs:
           royal = t[rs:re_]
           assert '<a ' not in royal
           assert 'download' not in royal
-          print('PASS: compact mobile typography and buttons; portrait and certificate references verified')
+          assert 'King_Fahd_Medal_Certificate_Full_2019.jpg' in royal
+          print('PASS: compact mobile typography/buttons, standalone portrait download, full certificate display only, side print only')
           PY
 
       - name: Commit repaired portfolio
@@ -109,10 +126,6 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html
-          if git diff --cached --quiet; then
-            echo 'No changes to commit'
-            exit 0
-          fi
+          git add index.html assets/Dr_Adeelah_Qattan_Portrait_Original.jpg assets/King_Fahd_Medal_Certificate_Full_2019.jpg
           git commit -m 'fix: refine mobile menu buttons portrait and medal certificate'
           git push origin HEAD:main

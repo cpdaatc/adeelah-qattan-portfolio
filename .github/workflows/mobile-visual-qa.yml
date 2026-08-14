@@ -1,0 +1,119 @@
+name: Mobile visual QA
+on:
+  push:
+    branches: [canonical-mobile-qa]
+    paths:
+      - '.github/workflows/mobile-visual-qa.yml'
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply canonical patch in QA workspace
+        run: python scripts/canonical_mobile_patch.py
+      - name: Validate downloadable PDFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v pdftotext >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils; }
+          pdftotext -layout assets/Dr_Adeelah_Qattan_CV_2026.pdf /tmp/cv.txt
+          pdftotext -layout assets/Dr_Adeelah_Qattan_Speaker_Bio_Bilingual.pdf /tmp/bio.txt
+          for token in 'atqattan@hotmail.com' 'adeelahqattan@gmail.com' 'Conference Committee Chair' '2nd Medical Education Conference' 'Healthcare Artificial Intelligence' '3rd Medical Education Conference' 'Innovation in Medical Education' '4th Medical Education Conference' 'AI and Medical Education' '5th Medical Education Leadership Summit' 'From Innovation to Measurable Impact' 'From AI to Responsible Intelligence'; do
+            grep -F "$token" /tmp/cv.txt >/dev/null || { echo "MISSING CV: $token"; exit 1; }
+          done
+          for token in 'Dr. Adeelah Talat Qattan' 'Consultant in Restorative Dentistry' 'Assistant Hospital Director for' 'Academic Affairs & Training' 'leadership experience in medical education and training' 'women’s empowerment'; do
+            grep -F "$token" /tmp/bio.txt >/dev/null || { echo "MISSING BIO: $token"; exit 1; }
+          done
+          echo 'PASS PDF audit'
+      - name: Prepare browser QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
+          if [ -z "$CHROME" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq chromium-browser || sudo apt-get install -y -qq chromium
+            CHROME=$(command -v chromium || command -v chromium-browser)
+          fi
+          echo "CHROME=$CHROME" >> "$GITHUB_ENV"
+          npm init -y >/dev/null 2>&1
+          npm install puppeteer-core@24.16.0 --no-save --silent
+          mkdir -p qa-artifacts
+          python3 -m http.server 8000 --bind 127.0.0.1 >/tmp/http.log 2>&1 &
+          echo $! >/tmp/http.pid
+          sleep 2
+      - name: Run 390x844 English and Arabic rendered QA
+        shell: bash
+        run: |
+          cat > /tmp/mobile-qa.mjs <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'fs';
+          const browser = await puppeteer.launch({headless:true, executablePath:process.env.CHROME, args:['--no-sandbox','--disable-dev-shm-usage']});
+          const page = await browser.newPage();
+          await page.setViewport({width:390,height:844,deviceScaleFactor:1});
+          const base='http://127.0.0.1:8000/';
+          const fail=(m)=>{throw new Error(m)};
+          await page.goto(base,{waitUntil:'networkidle0'});
+          await page.evaluate(()=>Promise.all([...document.images].map(i=>i.complete?true:new Promise(r=>{i.onload=i.onerror=r}))));
+          let hero=await page.$eval('.portrait-frame img',i=>({src:i.getAttribute('src'),nw:i.naturalWidth,nh:i.naturalHeight,w:i.getBoundingClientRect().width,h:i.getBoundingClientRect().height}));
+          if(hero.nw<400||hero.nh<400) fail('Hero portrait intrinsic size too small: '+JSON.stringify(hero));
+          if(hero.w<180||hero.h<180) fail('Hero portrait rendered too small');
+          await page.screenshot({path:'qa-artifacts/01-en-hero.png',fullPage:false});
+
+          await page.click('#menuBtn');
+          await page.waitForFunction(()=>document.body.classList.contains('menu-open'));
+          const enMenu=await page.$$eval('.sidebar-downloads .resource-download',els=>els.map(e=>({txt:e.innerText.trim(),h:e.getBoundingClientRect().height,fs:parseFloat(getComputedStyle(e).fontSize),bg:getComputedStyle(e).backgroundColor,color:getComputedStyle(e).color,href:e.getAttribute('href')})));
+          if(enMenu.length!==4) fail('Expected 4 mobile actions, got '+enMenu.length);
+          for(const a of enMenu){if(a.h>52||a.h<38) fail('Button height out of range '+JSON.stringify(a)); if(a.fs>16) fail('Button font too large '+JSON.stringify(a));}
+          if(!enMenu.some(x=>x.txt.includes('Download Personal Photo'))) fail('Photo action missing');
+          if(enMenu.some(x=>x.txt.includes('Print'))) fail('Unexpected print action');
+          await page.screenshot({path:'qa-artifacts/02-en-menu.png',fullPage:false});
+
+          await page.click('#menuBtn');
+          await page.click('#langToggle');
+          await page.waitForFunction(()=>document.documentElement.lang==='ar'&&document.documentElement.dir==='rtl');
+          const langState=await page.evaluate(()=>({lang:document.documentElement.lang,dir:document.documentElement.dir,en:[...document.querySelectorAll('.en')].filter(e=>getComputedStyle(e).display!=='none').length,ar:[...document.querySelectorAll('.ar')].filter(e=>getComputedStyle(e).display!=='none').length}));
+          if(langState.en!==0||langState.ar<5) fail('Language isolation failed '+JSON.stringify(langState));
+          await page.click('#menuBtn');
+          await page.waitForFunction(()=>document.body.classList.contains('menu-open'));
+          const arMenu=await page.$$eval('.sidebar-downloads .resource-download',els=>els.map(e=>({txt:e.innerText.trim(),h:e.getBoundingClientRect().height,fs:parseFloat(getComputedStyle(e).fontSize)})));
+          if(arMenu.length!==4) fail('AR expected 4 actions');
+          if(!arMenu.some(x=>x.txt.includes('تحميل الصورة الشخصية'))) fail('Arabic photo label missing');
+          for(const a of arMenu){if(a.h>52||a.h<38||a.fs>16) fail('AR button sizing failed '+JSON.stringify(a));}
+          await page.screenshot({path:'qa-artifacts/03-ar-menu.png',fullPage:false});
+
+          await page.click('#menuBtn');
+          await page.goto(base+'#royal',{waitUntil:'networkidle0'});
+          await page.evaluate(()=>document.querySelector('#royal').scrollIntoView({block:'start'}));
+          await new Promise(r=>setTimeout(r,400));
+          const cert=await page.$eval('.royal-document img',i=>{const r=i.getBoundingClientRect();return {src:i.getAttribute('src'),nw:i.naturalWidth,nh:i.naturalHeight,w:r.width,h:r.height,fit:getComputedStyle(i).objectFit,link:!!i.closest('a')}});
+          if(cert.nw<200||cert.nh<=cert.nw) fail('Certificate intrinsic dimensions invalid '+JSON.stringify(cert));
+          if(cert.fit!=='contain') fail('Certificate object-fit not contain');
+          if(cert.link) fail('Certificate must be display-only');
+          const ri=cert.nw/cert.nh, rr=cert.w/cert.h; if(Math.abs(ri-rr)>.03) fail('Certificate rendered aspect ratio cropped '+JSON.stringify(cert));
+          if(cert.w>330) fail('Certificate too wide on mobile');
+          await page.screenshot({path:'qa-artifacts/04-ar-royal.png',fullPage:false});
+
+          await page.goto(base,{waitUntil:'networkidle0'});
+          const metas=await page.evaluate(()=>({og:document.querySelector('meta[property="og:image"]')?.content,tw:document.querySelector('meta[name="twitter:image"]')?.content}));
+          if(!metas.og?.includes('share-preview.jpg')||!metas.tw?.includes('share-preview.jpg')) fail('Share preview metadata incorrect '+JSON.stringify(metas));
+          const resources=await page.$$eval('.sidebar-downloads a.resource-download',els=>els.map(e=>e.getAttribute('href')));
+          for(const href of resources.filter(Boolean).filter(x=>!x.startsWith('#'))){const res=await fetch(new URL(href,base));if(!res.ok) fail('Download resource failed '+href+' '+res.status);const b=await res.arrayBuffer();if(b.byteLength<5000) fail('Download resource suspiciously small '+href+' '+b.byteLength);}
+          const required=['atqattan@hotmail.com','adeelahqattan@gmail.com','2nd Medical Education Conference','Healthcare Artificial Intelligence','3rd Medical Education Conference','Innovation in Medical Education','4th Medical Education Conference','AI and Medical Education: Partnership for Resilient Healthcare','5th Medical Education Leadership Summit','From Innovation to Measurable Impact and Sustainable System','From AI to Responsible Intelligence','Conference Committee Chair','رئيسة لجنة المؤتمر'];
+          const html=await page.content(); for(const token of required){if(!html.includes(token)) fail('Missing HTML content '+token)}
+
+          const share=await browser.newPage(); await share.setViewport({width:1200,height:630,deviceScaleFactor:1});
+          await share.goto(base+'assets/share-preview.jpg?v=20260815-canonical',{waitUntil:'networkidle0'}); await share.screenshot({path:'qa-artifacts/05-share-preview.png',fullPage:false});
+          console.log('PASS MOBILE RENDER QA',JSON.stringify({hero,enMenu,arMenu,cert,metas}));
+          await browser.close();
+          JS
+          node /tmp/mobile-qa.mjs
+      - name: Upload rendered QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-visual-qa
+          path: qa-artifacts/
+          if-no-files-found: warn

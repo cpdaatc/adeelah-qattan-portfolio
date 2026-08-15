@@ -15,29 +15,24 @@ jobs:
       - run: |
           git fetch origin '+refs/heads/*:refs/remotes/origin/*' --force
           git fetch --tags --force
-      - name: Compare perceptual hashes
+      - name: Compare perceptual hashes and exact hashes
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --quiet pillow
-          python - <<'PY'
+          python - <<'PY' > media-match-results.txt
           import subprocess, io, hashlib
           from PIL import Image
-          TARGETS={
-            'portrait':int('9d243633b32f2db3',16),
-            'certificate':int('d4cdccd4cdc554f4',16),
-          }
+          TARGETS={'portrait':int('9d243633b32f2db3',16),'certificate':int('d4cdccd4cdc554f4',16)}
+          EXACT={'portrait':'823bc3846a4ce1a09e2811755306cf17cdfc5af9a19feb9b2e9ac1a051a4c462','certificate':'974d85bed1a071afe3ad3e66901d57c9d250dc72e1b4541d148edc2f4cae7331'}
           def dhash(data):
             im=Image.open(io.BytesIO(data)).convert('L').resize((9,8),Image.Resampling.LANCZOS)
-            px=list(im.getdata())
-            v=0
+            px=list(im.getdata()); v=0
             for y in range(8):
               row=px[y*9:(y+1)*9]
-              for x in range(8):
-                v=(v<<1)|int(row[x+1]>row[x])
+              for x in range(8): v=(v<<1)|int(row[x+1]>row[x])
             return v
-          def ham(a,b): return (a^b).bit_count()
-          rows=[]; seen=set()
+          rows=[]; exact=[]; seen=set()
           for line in subprocess.check_output(['git','rev-list','--objects','--all']).decode('utf-8','replace').splitlines():
             p=line.split(' ',1)
             if len(p)!=2: continue
@@ -47,14 +42,20 @@ jobs:
             if not path.lower().endswith(('.jpg','.jpeg','.png','.webp')): continue
             try: data=subprocess.check_output(['git','cat-file','blob',sha])
             except: continue
+            digest=hashlib.sha256(data).hexdigest()
             try:
-              im=Image.open(io.BytesIO(data)); dims=im.size; fmt=im.format
-              h=dhash(data)
+              im=Image.open(io.BytesIO(data)); dims=im.size; fmt=im.format; h=dhash(data)
             except: continue
-            for kind,t in TARGETS.items():
-              d=ham(h,t)
-              rows.append((d,kind,len(data),dims,fmt,sha,path,hashlib.sha256(data).hexdigest()))
-          rows.sort(key=lambda x:(x[0],-x[2]))
-          for r in rows[:60]:
-            print('MATCH_CANDIDATE',*r)
+            for kind,expected in EXACT.items():
+              if digest==expected: exact.append((kind,len(data),dims,fmt,sha,path,digest))
+            for kind,t in TARGETS.items(): rows.append(((h^t).bit_count(),kind,len(data),dims,fmt,sha,path,digest))
+          print('EXACT_MATCHES')
+          for r in exact: print(*r)
+          for kind in ('portrait','certificate'):
+            print('\n'+kind.upper())
+            for r in sorted((r for r in rows if r[1]==kind),key=lambda x:(x[0],-x[2]))[:30]: print(*r)
           PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: media-match-results
+          path: media-match-results.txt

@@ -1,0 +1,112 @@
+name: Diagnose exact user media 20260815
+on:
+  push:
+    paths:
+      - '.github/workflows/diagnose-exact-media-20260815.yml'
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch every branch and tag
+        run: |
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --force
+          git fetch --tags --force
+      - name: Scan native and staged media
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pillow
+          python - <<'PY'
+          import base64, hashlib, io, os, re, subprocess
+          from collections import defaultdict
+          from PIL import Image
+
+          EXPECTED={
+            'portrait':'823bc3846a4ce1a09e2811755306cf17cdfc5af9a19feb9b2e9ac1a051a4c462',
+            'certificate':'974d85bed1a071afe3ad3e66901d57c9d250dc72e1b4541d148edc2f4cae7331',
+          }
+          def sh(*args, data=None):
+            return subprocess.check_output(args,input=data).decode('utf-8','replace') if data is not None else subprocess.check_output(args).decode('utf-8','replace')
+          def raw_blob(sha):
+            return subprocess.check_output(['git','cat-file','blob',sha])
+          def inspect(label,data):
+            h=hashlib.sha256(data).hexdigest()
+            hit=[k for k,v in EXPECTED.items() if v==h]
+            if hit:
+              try:
+                im=Image.open(io.BytesIO(data)); dims=im.size; fmt=im.format
+              except Exception:
+                dims=None; fmt=None
+              print('EXACT_MATCH',hit[0],label,'bytes',len(data),'sha256',h,'format',fmt,'dims',dims)
+              return True
+            return False
+
+          print('EXPECTED',EXPECTED)
+          # Native blobs and individual base64 blobs across all refs.
+          objects=subprocess.check_output(['git','rev-list','--objects','--all']).decode('utf-8','replace').splitlines()
+          seen=set()
+          for line in objects:
+            parts=line.split(' ',1)
+            if len(parts)!=2: continue
+            sha,path=parts
+            if sha in seen: continue
+            seen.add(sha)
+            low=path.lower()
+            try: data=raw_blob(sha)
+            except Exception: continue
+            if low.endswith(('.jpg','.jpeg','.png','.webp')):
+              inspect('native:'+path,data)
+            if low.endswith('.b64') or 'base64' in low:
+              try:
+                s=''.join(data.decode('ascii','ignore').split())
+                if not s: continue
+                pad='='*((4-len(s)%4)%4)
+                decoded=base64.b64decode(s+pad,validate=False)
+                inspect('single-b64:'+path,decoded)
+              except Exception:
+                pass
+
+          # Concatenate plausible base64 chunk groups branch-by-branch.
+          refs=subprocess.check_output(['git','for-each-ref','--format=%(refname)','refs/remotes/origin','refs/heads','refs/tags']).decode().splitlines()
+          checked=0
+          for ref in refs:
+            try:
+              listing=subprocess.check_output(['git','ls-tree','-r','--name-only',ref]).decode().splitlines()
+            except Exception:
+              continue
+            by_dir=defaultdict(list)
+            for p in listing:
+              low=p.lower()
+              if not low.endswith('.b64'): continue
+              if 'portrait' not in low and 'cert' not in low and 'medal' not in low: continue
+              by_dir[os.path.dirname(p)].append(p)
+            for d,paths in by_dir.items():
+              for kind,words in [('portrait',('portrait',)),('certificate',('cert','medal'))]:
+                selected=[p for p in paths if any(w in os.path.basename(p).lower() for w in words)]
+                if len(selected)<2: continue
+                selected=sorted(selected)
+                # Try all contiguous windows; historical staging sometimes contains unrelated prefixes/tails.
+                for i in range(len(selected)):
+                  acc=''
+                  for j in range(i,min(len(selected),i+80)):
+                    p=selected[j]
+                    try: b=raw_blob(subprocess.check_output(['git','rev-parse',f'{ref}:{p}']).decode().strip())
+                    except Exception: break
+                    acc+=''.join(b.decode('ascii','ignore').split())
+                    if len(acc)<1000: continue
+                    checked+=1
+                    try:
+                      pad='='*((4-len(acc)%4)%4)
+                      data=base64.b64decode(acc+pad,validate=False)
+                    except Exception:
+                      continue
+                    if inspect(f'group:{ref}:{selected[i]}..{selected[j]}',data):
+                      pass
+          print('GROUP_WINDOWS_CHECKED',checked)
+          print('DIAGNOSIS_COMPLETE')
+          PY

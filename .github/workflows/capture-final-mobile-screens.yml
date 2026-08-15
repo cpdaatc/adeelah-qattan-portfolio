@@ -11,93 +11,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: canonical-repair-final-20260815
           fetch-depth: 0
-      - name: Install PDF verification tools
-        run: python3 -m pip install --user --break-system-packages --quiet pymupdf pillow numpy
-      - name: Detect and replace only the gray CV portrait placeholder
+      - name: Require passed release gate
+        run: grep -q 'FINAL MOBILE RELEASE GATE: PASS' audit/FINAL_PASS.txt
+      - name: Install Selenium
+        run: python3 -m pip install --user --break-system-packages --quiet selenium
+      - name: Capture 390x844 screenshots
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p audit/mobile-final
+          python3 -m http.server 8000 --bind 127.0.0.1 >/tmp/http.log 2>&1 & SERVER=$!
+          trap 'kill $SERVER || true' EXIT
+          sleep 2
           python3 - <<'PY'
-          from pathlib import Path
-          import io, shutil
-          import fitz
-          import numpy as np
-          from PIL import Image, ImageOps, ImageDraw
-
-          pdf_path=Path('assets/Dr_Adeelah_Qattan_CV_2026.pdf')
-          portrait_path=Path('assets/Dr_Adeelah_Qattan_Portrait_20260815.PNG')
-          assert pdf_path.exists() and portrait_path.exists()
-          doc=fitz.open(pdf_path)
-          assert len(doc)==2, len(doc)
-          page=doc[0]; pr=page.rect
-          candidates=[]
-          for d in page.get_drawings():
-              r=d.get('rect'); fill=d.get('fill')
-              if not r or fill is None: continue
-              w,h=r.width,r.height
-              if 45<=w<=120 and 45<=h<=120 and abs(w-h)<=12 and r.x0>pr.width*.62 and r.y0<190:
-                  candidates.append((w*h,r,fill,d.get('color'),d.get('width')))
-          print('CANDIDATES', [(tuple(round(v,1) for v in r), fill, stroke, sw) for _,r,fill,stroke,sw in candidates])
-          assert candidates, 'top-right gray portrait placeholder not found; refusing blind edit'
-          candidates.sort(key=lambda x:x[0], reverse=True)
-          _,box,fill,stroke,sw=candidates[0]
-          print('SELECTED',tuple(round(v,2) for v in box),'fill',fill,'stroke',stroke,'width',sw)
-
-          mat=fitz.Matrix(2,2)
-          before_pix=page.get_pixmap(matrix=mat,alpha=False)
-          before=np.frombuffer(before_pix.samples,dtype=np.uint8).reshape(before_pix.height,before_pix.width,before_pix.n)
-
-          src=Image.open(portrait_path).convert('RGB')
-          size=1200
-          face=ImageOps.fit(src,(size,size),method=Image.Resampling.LANCZOS,centering=(0.5,0.45))
-          mask=Image.new('L',(size,size),0)
-          ImageDraw.Draw(mask).ellipse((4,4,size-4,size-4),fill=255)
-          rgba=face.convert('RGBA'); rgba.putalpha(mask)
-          buf=io.BytesIO(); rgba.save(buf,format='PNG',optimize=True)
-          inset=max(1.2,float(sw or 1.0)+0.4)
-          target=fitz.Rect(box.x0+inset,box.y0+inset,box.x1-inset,box.y1-inset)
-          page.insert_image(target,stream=buf.getvalue(),keep_proportion=True,overlay=True)
-
-          tmp=pdf_path.with_name('Dr_Adeelah_Qattan_CV_2026.fixed.pdf')
-          doc.save(tmp,garbage=4,deflate=True,clean=True)
-          doc.close()
-          fixed=fitz.open(tmp)
-          after_pix=fixed[0].get_pixmap(matrix=mat,alpha=False)
-          after=np.frombuffer(after_pix.samples,dtype=np.uint8).reshape(after_pix.height,after_pix.width,after_pix.n)
-          fixed.close()
-
-          x0,y0,x1,y1=[int(v*2) for v in (target.x0,target.y0,target.x1,target.y1)]
-          crop=after[y0:y1,x0:x1,:3]
-          variance=float(crop.var()); unique=len(np.unique(crop.reshape(-1,3),axis=0))
-          print('PORTRAIT_VARIANCE',variance,'UNIQUE_RGB',unique)
-          assert variance>250 and unique>500, 'portrait remains flat/gray'
-          diff=np.abs(after[:,:,:3].astype(np.int16)-before[:,:,:3].astype(np.int16))
-          outside=np.ones(diff.shape[:2],dtype=bool); pad=10
-          outside[max(0,y0-pad):min(outside.shape[0],y1+pad),max(0,x0-pad):min(outside.shape[1],x1+pad)]=False
-          mean=float(diff[outside].mean()); p99=float(np.percentile(diff[outside],99))
-          print('OUTSIDE_MEAN_DIFF',mean,'OUTSIDE_P99',p99)
-          assert mean<0.8, mean
-          shutil.move(tmp,pdf_path)
-          print('PASS: real portrait embedded; rest of CV visually preserved')
+          import time
+          from selenium import webdriver
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.chrome.options import Options
+          o=Options(); o.add_argument('--headless=new'); o.add_argument('--no-sandbox'); o.add_argument('--disable-gpu'); o.add_argument('--window-size=390,844'); o.add_argument('--force-device-scale-factor=1')
+          d=webdriver.Chrome(options=o)
+          try:
+            d.get('http://127.0.0.1:8000/index.html?visual-final=1'); time.sleep(1)
+            d.save_screenshot('audit/mobile-final/01-en-home.png')
+            d.execute_script("document.body.classList.add('menu-open')"); time.sleep(.3); d.save_screenshot('audit/mobile-final/02-en-menu.png')
+            d.execute_script("document.body.classList.remove('menu-open'); toggleLanguage(); document.body.classList.add('menu-open')"); time.sleep(.35); d.save_screenshot('audit/mobile-final/03-ar-menu.png')
+            d.execute_script("document.body.classList.remove('menu-open'); location.hash='royal';"); time.sleep(.8); d.save_screenshot('audit/mobile-final/04-royal-ar.png')
+          finally: d.quit()
           PY
-      - name: Update CV cache key
+      - name: Commit visual evidence to repair branch
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('index.html'); s=p.read_text(encoding='utf-8')
-          s=s.replace('assets/Dr_Adeelah_Qattan_CV_2026.pdf?v=20260814-10','assets/Dr_Adeelah_Qattan_CV_2026.pdf?v=20260815-cv-photo')
-          assert 'assets/Dr_Adeelah_Qattan_CV_2026.pdf?v=20260815-cv-photo' in s
-          p.write_text(s,encoding='utf-8')
-          PY
-      - name: Restore workflow files and commit only verified production fix
-        run: |
-          set -euo pipefail
-          git checkout origin/main -- .github/workflows/capture-final-mobile-screens.yml
-          rm -f .github/workflows/fix-cv-portrait.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git diff --cached --check
-          git commit -m 'fix: replace CV portrait placeholder with verified photo'
-          git push origin HEAD:fix-cv-portrait-20260815
+          git add audit/mobile-final
+          git commit -m 'test: add final mobile visual evidence'
+          git push origin HEAD:canonical-repair-final-20260815

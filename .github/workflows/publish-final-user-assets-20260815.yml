@@ -1,0 +1,84 @@
+name: Publish final user assets 20260815
+
+on:
+  push:
+    branches:
+      - publish-final-user-assets-20260815
+    paths:
+      - '.github/workflows/publish-final-user-assets-20260815.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Import exact user-provided binaries from verified source branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin reconstruct-exact-user-assets-20260815
+          git show origin/reconstruct-exact-user-assets-20260815:assets/Dr_Adeelah_Qattan_Portrait_User_20260815.jpg > assets/Dr_Adeelah_Qattan_Portrait_Original.jpg
+          git show origin/reconstruct-exact-user-assets-20260815:assets/King_Fahd_Medal_Certificate_User_20260815.jpg > assets/King_Fahd_Medal_Third_Degree_2019.jpg
+
+          echo 'f40c41bfb34198f9eb32f615e0744fdca353f9556720e79b90a38b7ebee72b0e  assets/Dr_Adeelah_Qattan_Portrait_Original.jpg' | sha256sum -c -
+          echo 'b09932f93a9d1a3fc121d9a3fe45324705b5268754be39146239e2fd1abd87f9  assets/King_Fahd_Medal_Third_Degree_2019.jpg' | sha256sum -c -
+
+          python -m pip install --quiet pillow
+          python - <<'PY'
+          from PIL import Image
+          expected = {
+              'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg': (1254, 1254),
+              'assets/King_Fahd_Medal_Third_Degree_2019.jpg': (1320, 1673),
+          }
+          for path, size in expected.items():
+              with Image.open(path) as im:
+                  assert im.format == 'JPEG', (path, im.format)
+                  assert im.size == size, (path, im.size, size)
+                  im.verify()
+              print(path, size, 'OK')
+          PY
+
+      - name: Update portfolio references with fresh cache keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          portrait_new = 'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260815-user-original'
+          cert_new = 'assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260815-user-original'
+          s, n1 = re.subn(r'assets/Dr_Adeelah_Qattan_Portrait_Original\.jpg(?:\?[^\"\']*)?', portrait_new, s)
+          s, n2 = re.subn(r'assets/King_Fahd_Medal_Third_Degree_2019\.jpg(?:\?[^\"\']*)?', cert_new, s)
+          assert n1 >= 2, f'portrait references updated: {n1}'
+          assert n2 >= 1, f'certificate references updated: {n2}'
+          assert s.count(portrait_new) >= 2
+          assert s.count(cert_new) >= 1
+          assert 'download="Dr_Adeelah_Qattan_Portrait_Original.jpg"' in s
+          p.write_text(s, encoding='utf-8')
+          print('portrait refs', n1, 'certificate refs', n2)
+          PY
+
+          grep -F 'Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260815-user-original' index.html
+          grep -F 'King_Fahd_Medal_Third_Degree_2019.jpg?v=20260815-user-original' index.html
+          grep -F 'download="Dr_Adeelah_Qattan_Portrait_Original.jpg"' index.html
+          git diff --check
+
+      - name: Commit only final portfolio changes to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html assets/Dr_Adeelah_Qattan_Portrait_Original.jpg assets/King_Fahd_Medal_Third_Degree_2019.jpg
+          git diff --cached --check
+          git commit -m 'feat: update portfolio portrait and royal certificate'
+          git push origin HEAD:main

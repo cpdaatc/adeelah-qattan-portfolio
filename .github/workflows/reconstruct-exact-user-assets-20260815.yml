@@ -1,0 +1,65 @@
+name: Reconstruct exact user assets 20260815
+
+on:
+  push:
+    branches:
+      - reconstruct-exact-user-assets-20260815
+    paths:
+      - '.github/workflows/reconstruct-exact-user-assets-20260815.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  reconstruct:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct exact uploaded portrait and certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Portrait transport files:'
+          find .final-stage -maxdepth 1 -type f -name 'portrait-*.b64' -printf '%f\n' | sort -V
+          echo 'Certificate transport files:'
+          find .final-stage -maxdepth 1 -type f -name 'cert-*.b64' -printf '%f\n' | sort -V
+
+          mapfile -t PORTRAIT_PARTS < <(find .final-stage -maxdepth 1 -type f -name 'portrait-*.b64' | sort -V)
+          mapfile -t CERT_PARTS < <(find .final-stage -maxdepth 1 -type f -name 'cert-*.b64' | sort -V)
+          test ${#PORTRAIT_PARTS[@]} -gt 0
+          test ${#CERT_PARTS[@]} -gt 0
+
+          cat "${PORTRAIT_PARTS[@]}" | tr -d '\r\n\t ' | base64 -d > assets/Dr_Adeelah_Qattan_Portrait_User_20260815.jpg
+          cat "${CERT_PARTS[@]}" | tr -d '\r\n\t ' | base64 -d > assets/King_Fahd_Medal_Certificate_User_20260815.jpg
+
+          echo 'f40c41bfb34198f9eb32f615e0744fdca353f9556720e79b90a38b7ebee72b0e  assets/Dr_Adeelah_Qattan_Portrait_User_20260815.jpg' | sha256sum -c -
+          echo 'b09932f93a9d1a3fc121d9a3fe45324705b5268754be39146239e2fd1abd87f9  assets/King_Fahd_Medal_Certificate_User_20260815.jpg' | sha256sum -c -
+
+          python -m pip install --quiet pillow
+          python - <<'PY'
+          from PIL import Image
+          expected = {
+              'assets/Dr_Adeelah_Qattan_Portrait_User_20260815.jpg': (1254, 1254),
+              'assets/King_Fahd_Medal_Certificate_User_20260815.jpg': (1320, 1673),
+          }
+          for path, size in expected.items():
+              with Image.open(path) as im:
+                  assert im.format == 'JPEG', (path, im.format)
+                  assert im.size == size, (path, im.size, size)
+                  im.verify()
+              print(path, size, 'OK')
+          PY
+
+      - name: Commit reconstructed exact binaries on source branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/Dr_Adeelah_Qattan_Portrait_User_20260815.jpg assets/King_Fahd_Medal_Certificate_User_20260815.jpg
+          git diff --cached --check
+          git commit -m 'build: reconstruct exact user-provided portfolio assets'
+          git push origin HEAD:reconstruct-exact-user-assets-20260815

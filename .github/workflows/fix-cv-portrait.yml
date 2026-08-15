@@ -25,82 +25,96 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import io, shutil
-          import fitz
+          import pymupdf as fitz
           import numpy as np
           from PIL import Image, ImageOps, ImageDraw
 
-          pdf_path = Path('assets/Dr_Adeelah_Qattan_CV_2026.pdf')
-          portrait_path = Path('assets/Dr_Adeelah_Qattan_Portrait_20260815.PNG')
-          assert pdf_path.exists(), pdf_path
-          assert portrait_path.exists(), portrait_path
+          pdf_path=Path('assets/Dr_Adeelah_Qattan_CV_2026.pdf')
+          portrait_path=Path('assets/Dr_Adeelah_Qattan_Portrait_20260815.PNG')
+          assert pdf_path.exists() and portrait_path.exists()
+          doc=fitz.open(pdf_path)
+          original_pages=len(doc)
+          assert original_pages>=2
+          page=doc[0]
+          scale=2
+          mat=fitz.Matrix(scale,scale)
+          before_pix=page.get_pixmap(matrix=mat,alpha=False)
+          before=np.frombuffer(before_pix.samples,dtype=np.uint8).reshape(before_pix.height,before_pix.width,before_pix.n)[:,:,:3]
 
-          doc = fitz.open(pdf_path)
-          original_pages = len(doc)
-          assert original_pages >= 2, f'unexpected CV page count: {original_pages}'
-          page = doc[0]
-          pr = page.rect
+          # Detect the large neutral-gray filled circle in the top-right header from the rendered page.
+          h,w,_=before.shape
+          roi=before[0:int(h*.27), int(w*.60):w, :]
+          mx=roi.max(axis=2); mn=roi.min(axis=2); intensity=roi.mean(axis=2)
+          neutral=(mx-mn<=7) & (intensity>=90) & (intensity<=190)
+          row_counts=neutral.sum(axis=1)
+          good_rows=np.where(row_counts>=35)[0]
+          assert len(good_rows)>0, f'no large gray region rows; max={int(row_counts.max())}'
 
-          candidates = []
-          for d in page.get_drawings():
-              r = d.get('rect')
-              fill = d.get('fill')
-              if not r or fill is None:
-                  continue
-              w, h = r.width, r.height
-              if 45 <= w <= 120 and 45 <= h <= 120 and abs(w-h) <= 12 and r.x0 > pr.width * 0.62 and r.y0 < 190:
-                  candidates.append((w*h, r, fill, d.get('color'), d.get('width')))
-          print('CANDIDATES', [(tuple(round(v,1) for v in r), fill, stroke, sw) for _,r,fill,stroke,sw in candidates])
-          assert candidates, 'could not locate top-right portrait placeholder; refusing blind PDF edit'
-          candidates.sort(reverse=True, key=lambda x: x[0])
-          _, box, fill, stroke, stroke_width = candidates[0]
-          print('PLACEHOLDER', tuple(round(v,2) for v in box), 'fill=', fill, 'stroke=', stroke, 'width=', stroke_width)
+          # Group consecutive candidate rows and select the tallest substantial run.
+          runs=[]; start=prev=int(good_rows[0])
+          for y in map(int,good_rows[1:]):
+              if y==prev+1: prev=y
+              else: runs.append((start,prev)); start=prev=y
+          runs.append((start,prev))
+          runs=[r for r in runs if r[1]-r[0]+1>=35]
+          assert runs, f'no substantial gray row run: {[(a,b,b-a+1) for a,b in runs]}'
+          ry0,ry1=max(runs,key=lambda r:r[1]-r[0])
+          band=neutral[ry0:ry1+1,:]
+          col_counts=band.sum(axis=0)
+          good_cols=np.where(col_counts>=25)[0]
+          assert len(good_cols)>0
+          cruns=[]; start=prev=int(good_cols[0])
+          for x in map(int,good_cols[1:]):
+              if x==prev+1: prev=x
+              else: cruns.append((start,prev)); start=prev=x
+          cruns.append((start,prev))
+          cruns=[r for r in cruns if r[1]-r[0]+1>=35]
+          assert cruns, 'no substantial gray column run'
+          rx0,rx1=max(cruns,key=lambda r:r[1]-r[0])
 
-          mat = fitz.Matrix(2, 2)
-          before_pix = page.get_pixmap(matrix=mat, alpha=False)
-          before = np.frombuffer(before_pix.samples, dtype=np.uint8).reshape(before_pix.height, before_pix.width, before_pix.n)
+          # Convert ROI pixels back to PDF points. Use the gray fill itself, leaving gold border untouched.
+          px0=int(w*.60)+rx0; px1=int(w*.60)+rx1+1
+          py0=ry0; py1=ry1+1
+          box=fitz.Rect(px0/scale,py0/scale,px1/scale,py1/scale)
+          assert 45<=box.width<=105 and 45<=box.height<=105, f'implausible placeholder box {box}'
+          assert abs(box.width-box.height)<=12, f'placeholder not near-square {box}'
+          print('DETECTED_GRAY_BOX',tuple(round(v,2) for v in box),'size',round(box.width,2),round(box.height,2))
 
-          src = Image.open(portrait_path).convert('RGB')
-          size = 1200
-          face = ImageOps.fit(src, (size, size), method=Image.Resampling.LANCZOS, centering=(0.5, 0.45))
-          mask = Image.new('L', (size, size), 0)
-          ImageDraw.Draw(mask).ellipse((5,5,size-5,size-5), fill=255)
-          rgba = face.convert('RGBA')
-          rgba.putalpha(mask)
-          buf = io.BytesIO()
-          rgba.save(buf, format='PNG', optimize=True)
+          src=Image.open(portrait_path).convert('RGB')
+          size=1200
+          face=ImageOps.fit(src,(size,size),method=Image.Resampling.LANCZOS,centering=(0.5,0.45))
+          mask=Image.new('L',(size,size),0)
+          ImageDraw.Draw(mask).ellipse((2,2,size-2,size-2),fill=255)
+          rgba=face.convert('RGBA'); rgba.putalpha(mask)
+          buf=io.BytesIO(); rgba.save(buf,format='PNG',optimize=True)
+          target=fitz.Rect(box)
+          page.insert_image(target,stream=buf.getvalue(),keep_proportion=True,overlay=True)
 
-          inset = max(1.2, float(stroke_width or 1.0) + 0.4)
-          target = fitz.Rect(box.x0+inset, box.y0+inset, box.x1-inset, box.y1-inset)
-          page.insert_image(target, stream=buf.getvalue(), keep_proportion=True, overlay=True)
-
-          tmp = pdf_path.with_name(pdf_path.stem + '_fixed.pdf')
-          doc.save(tmp, garbage=4, deflate=True, clean=True)
+          tmp=pdf_path.with_name(pdf_path.stem+'_fixed.pdf')
+          doc.save(tmp,garbage=4,deflate=True,clean=True)
           doc.close()
 
-          fixed = fitz.open(tmp)
-          assert len(fixed) == original_pages, f'page count changed: {original_pages} -> {len(fixed)}'
-          after_pix = fixed[0].get_pixmap(matrix=mat, alpha=False)
-          after = np.frombuffer(after_pix.samples, dtype=np.uint8).reshape(after_pix.height, after_pix.width, after_pix.n)
+          fixed=fitz.open(tmp)
+          assert len(fixed)==original_pages, f'page count changed {original_pages}->{len(fixed)}'
+          after_pix=fixed[0].get_pixmap(matrix=mat,alpha=False)
+          after=np.frombuffer(after_pix.samples,dtype=np.uint8).reshape(after_pix.height,after_pix.width,after_pix.n)[:,:,:3]
           fixed.close()
 
-          x0,y0,x1,y1 = [int(v*2) for v in (target.x0,target.y0,target.x1,target.y1)]
-          crop = after[y0:y1, x0:x1, :3]
-          variance = float(crop.var())
-          unique = len(np.unique(crop.reshape(-1,3), axis=0))
-          print('PORTRAIT_VARIANCE', variance, 'UNIQUE_RGB', unique)
-          assert variance > 250 and unique > 500, 'portrait region still looks like a flat placeholder'
+          x0,y0,x1,y1=[int(v*scale) for v in (target.x0,target.y0,target.x1,target.y1)]
+          crop=after[y0:y1,x0:x1,:]
+          variance=float(crop.var()); unique=len(np.unique(crop.reshape(-1,3),axis=0))
+          print('PORTRAIT_VARIANCE',variance,'UNIQUE_RGB',unique)
+          assert variance>300 and unique>800, 'portrait region remains flat/gray'
 
-          diff = np.abs(after[:,:,:3].astype(np.int16) - before[:,:,:3].astype(np.int16))
-          mask_out = np.ones(diff.shape[:2], dtype=bool)
-          pad = 10
-          mask_out[max(0,y0-pad):min(mask_out.shape[0],y1+pad), max(0,x0-pad):min(mask_out.shape[1],x1+pad)] = False
-          outside_mean = float(diff[mask_out].mean())
-          outside_p99 = float(np.percentile(diff[mask_out], 99))
-          print('OUTSIDE_MEAN_DIFF', outside_mean, 'OUTSIDE_P99', outside_p99)
-          assert outside_mean < 0.8, f'unexpected changes outside portrait: {outside_mean}'
+          diff=np.abs(after.astype(np.int16)-before.astype(np.int16))
+          outside=np.ones(diff.shape[:2],dtype=bool); pad=12
+          outside[max(0,y0-pad):min(h,y1+pad),max(0,x0-pad):min(w,x1+pad)]=False
+          mean=float(diff[outside].mean()); p99=float(np.percentile(diff[outside],99))
+          print('OUTSIDE_MEAN_DIFF',mean,'OUTSIDE_P99',p99)
+          assert mean<0.8, f'unexpected content change outside portrait: {mean}'
 
-          shutil.move(tmp, pdf_path)
-          print('PASS: portrait embedded; page count and all non-portrait content preserved')
+          shutil.move(tmp,pdf_path)
+          print('PASS: actual portrait embedded; all pages retained; content outside portrait preserved')
           PY
 
       - name: Bust cached CV download URL
@@ -109,12 +123,11 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('index.html')
-          s=p.read_text(encoding='utf-8')
+          p=Path('index.html'); s=p.read_text(encoding='utf-8')
           old='assets/Dr_Adeelah_Qattan_CV_2026.pdf?v=20260814-10'
           new='assets/Dr_Adeelah_Qattan_CV_2026.pdf?v=20260815-cv-photo'
           assert old in s, 'old CV cache key not found'
-          p.write_text(s.replace(old,new), encoding='utf-8')
+          p.write_text(s.replace(old,new),encoding='utf-8')
           PY
 
       - name: Restore temporary workflows and commit verified production fix

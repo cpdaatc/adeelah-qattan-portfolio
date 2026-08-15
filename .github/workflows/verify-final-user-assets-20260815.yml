@@ -1,0 +1,50 @@
+name: Verify final user assets 20260815
+
+on:
+  push:
+    branches:
+      - verify-final-user-assets-20260815
+    paths:
+      - '.github/workflows/verify-final-user-assets-20260815.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact source bytes and portfolio wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'f40c41bfb34198f9eb32f615e0744fdca353f9556720e79b90a38b7ebee72b0e  assets/Dr_Adeelah_Qattan_Portrait_Original.jpg' | sha256sum -c -
+          echo 'b09932f93a9d1a3fc121d9a3fe45324705b5268754be39146239e2fd1abd87f9  assets/King_Fahd_Medal_Third_Degree_2019.jpg' | sha256sum -c -
+          python -m pip install --quiet pillow
+          python - <<'PY'
+          from PIL import Image
+          expected = {
+              'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg': (1254, 1254),
+              'assets/King_Fahd_Medal_Third_Degree_2019.jpg': (1320, 1673),
+          }
+          for path, size in expected.items():
+              with Image.open(path) as im:
+                  assert im.format == 'JPEG', (path, im.format)
+                  assert im.size == size, (path, im.size, size)
+                  im.verify()
+          PY
+          test "$(grep -o 'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260815-user-original' index.html | wc -l)" -ge 2
+          test "$(grep -o 'assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260815-user-original' index.html | wc -l)" -ge 1
+          grep -F 'download="Dr_Adeelah_Qattan_Portrait_Original.jpg"' index.html
+          git diff --check
+      - name: Record successful verification on verification branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'PASS: exact user portrait + exact user certificate + portfolio references verified' > VERIFIED_FINAL_USER_ASSETS.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add VERIFIED_FINAL_USER_ASSETS.txt
+          git commit -m 'test: final user assets verified'
+          git push origin HEAD:verify-final-user-assets-20260815

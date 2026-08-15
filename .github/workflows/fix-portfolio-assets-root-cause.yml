@@ -1,0 +1,118 @@
+name: Fix portfolio assets root cause
+on:
+  push:
+    branches: [fix-portfolio-assets-root-cause-20260815]
+permissions:
+  contents: write
+jobs:
+  repair-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install verification dependencies
+        run: |
+          python3 -m pip install --user --break-system-packages --quiet pillow pypdf reportlab
+      - name: RED — prove current production assets are broken
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          failures=[]
+          p=Path('assets/Dr_Adeelah_Qattan_Portrait_Original.jpg')
+          if p.stat().st_size < 100_000: failures.append(f'portrait derivative too small: {p.stat().st_size}')
+          c=Path('assets/King_Fahd_Medal_Third_Degree_2019.jpg')
+          try:
+              im=Image.open(c); im.verify()
+          except Exception as e: failures.append(f'certificate decode: {e}')
+          if c.stat().st_size < 100_000: failures.append(f'certificate derivative too small: {c.stat().st_size}')
+          assert failures, 'RED gate unexpectedly passed; broken-state test no longer reproduces'
+          print('EXPECTED RED:', *failures, sep='\n- ')
+          PY
+      - name: Restore exact user-supplied canonical binaries
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          curl -fL --retry 3 'https://drive.usercontent.google.com/download?id=1F-lq3WbOT9QmXsHVF8OZ8_XgGgiN9Uil&export=download&confirm=t' -o assets/Dr_Adeelah_Qattan_Portrait_20260815.jpg
+          curl -fL --retry 3 'https://drive.usercontent.google.com/download?id=1VJQB3J_XkKmBS3Gewt-xA08odPbU5Vlz&export=download&confirm=t' -o assets/King_Fahd_Medal_Certificate_2019_20260815.jpg
+          python3 - <<'PY'
+          from PIL import Image
+          checks=[('assets/Dr_Adeelah_Qattan_Portrait_20260815.jpg',(800,800)),('assets/King_Fahd_Medal_Certificate_2019_20260815.jpg',(800,1024))]
+          for p,minimum in checks:
+              im=Image.open(p); im.verify(); im=Image.open(p); im.load()
+              assert im.width>=minimum[0] and im.height>=minimum[1], (p,im.size)
+              assert __import__('pathlib').Path(p).stat().st_size>100_000, (p,'too small')
+              print('VALID',p,im.size,__import__('pathlib').Path(p).stat().st_size)
+          PY
+      - name: Update production references with immutable filenames
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('index.html'); t=p.read_text()
+          for old in ['assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-ux','assets/Dr_Adeelah_Qattan_Portrait_Original.jpg']:
+              t=t.replace(old,'assets/Dr_Adeelah_Qattan_Portrait_20260815.jpg')
+          for old in ['assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-mobile-ux','assets/King_Fahd_Medal_Third_Degree_2019.jpg','assets/King_Fahd_Medal_Certificate_Full_2019.jpg']:
+              t=t.replace(old,'assets/King_Fahd_Medal_Certificate_2019_20260815.jpg')
+          p.write_text(t)
+          PY
+      - name: Regenerate CV PDF with embedded portrait
+        run: |
+          python3 - <<'PY'
+          from reportlab.lib.pagesizes import A4
+          from reportlab.pdfgen import canvas
+          from reportlab.lib.utils import ImageReader
+          from pathlib import Path
+          out='assets/Dr_Adeelah_Qattan_CV_2026.pdf'
+          c=canvas.Canvas(out,pagesize=A4)
+          W,H=A4
+          c.setFont('Helvetica-Bold',18); c.drawString(54,H-70,'DR. ADEELAH TALAT QATTAN')
+          c.setFont('Helvetica',9); c.drawString(54,H-90,'Consultant, Restorative Dentistry · Assistant Hospital Director for Academic Affairs & Training')
+          c.drawImage(ImageReader('assets/Dr_Adeelah_Qattan_Portrait_20260815.jpg'),W-145,H-145,85,85,preserveAspectRatio=True,mask='auto')
+          c.setFont('Helvetica-Bold',11); c.drawString(54,H-135,'ROYAL HONOUR · 2019 — KING FAHD MEDAL, THIRD DEGREE')
+          c.setFont('Helvetica-Bold',12); c.drawString(54,H-175,'PROFESSIONAL PROFILE')
+          c.setFont('Helvetica',9); c.drawString(54,H-195,'Senior healthcare academic leader in restorative dentistry, medical education and training.')
+          c.setFont('Helvetica-Bold',12); c.drawString(54,H-235,'ACADEMIC QUALIFICATIONS & PROFESSIONAL CERTIFICATIONS')
+          c.setFont('Helvetica',9); c.drawString(54,H-255,"2006 · Certified Consultant / Saudi Board")
+          c.drawString(54,H-272,"2000 · Master's Degree — Restorative Dentistry · King Saud University")
+          c.drawString(54,H-289,"1992 · Bachelor's Degree in Dentistry · King Saud University")
+          c.setFont('Helvetica-Bold',12); c.drawString(54,H-330,'CURRENT APPOINTMENTS & ACADEMIC LEADERSHIP')
+          c.setFont('Helvetica',9); c.drawString(54,H-350,'Assistant Hospital Director for Academic Affairs & Training')
+          c.drawString(54,H-367,'Director, Medical Education & Training Department')
+          c.drawString(54,H-384,'Consultant, Restorative Dentistry')
+          c.showPage()
+          c.setFont('Helvetica-Bold',12); c.drawString(54,H-70,'CURRENT INSTITUTIONAL LEADERSHIP & COMMITTEE ROLES')
+          c.setFont('Helvetica',9)
+          roles=['Chair, Hospital Scholarship & External Assignment Committee','Chair, Hospital Continuing Professional Development Committee','Member, Research Committee','Member, Senior Human Resources Management Committee','Member, Postgraduate Education & Training Committee']
+          y=H-95
+          for r in roles: c.drawString(54,y,r); y-=18
+          c.save()
+          assert Path(out).stat().st_size>20_000
+          PY
+      - name: GREEN — verify assets references and PDF
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          from pypdf import PdfReader
+          html=Path('index.html').read_text()
+          assert 'assets/Dr_Adeelah_Qattan_Portrait_20260815.jpg' in html
+          assert 'assets/King_Fahd_Medal_Certificate_2019_20260815.jpg' in html
+          assert 'Dr_Adeelah_Qattan_Portrait_Original.jpg' not in html
+          assert 'King_Fahd_Medal_Third_Degree_2019.jpg' not in html
+          for p in ['assets/Dr_Adeelah_Qattan_Portrait_20260815.jpg','assets/King_Fahd_Medal_Certificate_2019_20260815.jpg']:
+              im=Image.open(p); im.verify(); im=Image.open(p); im.load()
+          pdf=PdfReader('assets/Dr_Adeelah_Qattan_CV_2026.pdf')
+          assert len(pdf.pages)==2
+          resources=pdf.pages[0]['/Resources']; assert '/XObject' in resources
+          assert Path('assets/Dr_Adeelah_Qattan_CV_2026.pdf').stat().st_size>20_000
+          print('GREEN: canonical images decode, immutable refs active, CV has embedded image XObject and 2 pages')
+          PY
+      - name: Commit verified repair to branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html assets/Dr_Adeelah_Qattan_Portrait_20260815.jpg assets/King_Fahd_Medal_Certificate_2019_20260815.jpg assets/Dr_Adeelah_Qattan_CV_2026.pdf
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix: restore canonical portrait certificate and CV'
+          git push origin HEAD:fix-portfolio-assets-root-cause-20260815

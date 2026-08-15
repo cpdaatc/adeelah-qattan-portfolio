@@ -1,0 +1,92 @@
+name: Apply uploaded portfolio images
+
+on:
+  push:
+    branches:
+      - fix-uploaded-portfolio-images-20260815
+    paths:
+      - '.github/workflows/apply-uploaded-portfolio-images.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install image verifier
+        run: python3 -m pip install --user --break-system-packages --quiet pillow
+
+      - name: Verify the two user-uploaded images before changing HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+
+          checks = [
+              (Path('assets/Dr_Adeelah_Qattan_Portrait_20260815.PNG'), 1000, 1000),
+              (Path('assets/King_Fahd_Medal_Certificate_2019_20260815.jpg'), 1000, 1400),
+          ]
+          for p, min_w, min_h in checks:
+              assert p.exists(), f'missing {p}'
+              assert p.stat().st_size > 100_000, f'{p} unexpectedly small: {p.stat().st_size}'
+              im = Image.open(p)
+              im.verify()
+              im = Image.open(p)
+              im.load()
+              assert im.width >= min_w and im.height >= min_h, f'{p} dimensions too small: {im.size}'
+              print('VALID', p, im.format, im.size, p.stat().st_size)
+          PY
+
+      - name: Point hero download and Royal Honour to verified assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          old_portrait = 'assets/Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-ux'
+          old_cert = 'assets/King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-mobile-ux'
+          assert s.count(old_portrait) == 2, f'expected 2 portrait refs, found {s.count(old_portrait)}'
+          assert s.count(old_cert) == 1, f'expected 1 certificate ref, found {s.count(old_cert)}'
+          s = s.replace(old_portrait, 'assets/Dr_Adeelah_Qattan_Portrait_20260815.PNG?v=20260815-final')
+          s = s.replace(old_cert, 'assets/King_Fahd_Medal_Certificate_2019_20260815.jpg?v=20260815-final')
+          s = s.replace('download="Dr_Adeelah_Qattan_Portrait_Original.jpg"', 'download="Dr_Adeelah_Qattan_Portrait_20260815.PNG"')
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: GREEN gate — reject stale or broken production references
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          s = Path('index.html').read_text(encoding='utf-8')
+          assert s.count('assets/Dr_Adeelah_Qattan_Portrait_20260815.PNG?v=20260815-final') == 2
+          assert s.count('assets/King_Fahd_Medal_Certificate_2019_20260815.jpg?v=20260815-final') == 1
+          assert 'Dr_Adeelah_Qattan_Portrait_Original.jpg?v=20260814-mobile-ux' not in s
+          assert 'King_Fahd_Medal_Third_Degree_2019.jpg?v=20260814-mobile-ux' not in s
+          for p in ['assets/Dr_Adeelah_Qattan_Portrait_20260815.PNG','assets/King_Fahd_Medal_Certificate_2019_20260815.jpg']:
+              im = Image.open(p); im.verify()
+          print('PASS: hero, personal-photo download and Royal Honour use verified uploaded images')
+          PY
+
+      - name: Remove one-time workflow and commit verified repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/apply-uploaded-portfolio-images.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix: use verified uploaded portrait and royal certificate'
+          git push origin HEAD:fix-uploaded-portfolio-images-20260815

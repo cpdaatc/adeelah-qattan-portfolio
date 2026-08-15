@@ -23,17 +23,18 @@ jobs:
           python - <<'PY'
           import subprocess, io, hashlib
           from PIL import Image
-          import numpy as np
           TARGETS={
             'portrait':int('9d243633b32f2db3',16),
             'certificate':int('d4cdccd4cdc554f4',16),
           }
           def dhash(data):
             im=Image.open(io.BytesIO(data)).convert('L').resize((9,8),Image.Resampling.LANCZOS)
-            a=np.asarray(im)
-            bits=(a[:,1:]>a[:,:-1]).flatten()
+            px=list(im.getdata())
             v=0
-            for b in bits: v=(v<<1)|int(b)
+            for y in range(8):
+              row=px[y*9:(y+1)*9]
+              for x in range(8):
+                v=(v<<1)|int(row[x+1]>row[x])
             return v
           def ham(a,b): return (a^b).bit_count()
           rows=[]; seen=set()
@@ -54,6 +55,6 @@ jobs:
               d=ham(h,t)
               rows.append((d,kind,len(data),dims,fmt,sha,path,hashlib.sha256(data).hexdigest()))
           rows.sort(key=lambda x:(x[0],-x[2]))
-          for r in rows[:40]:
+          for r in rows[:60]:
             print('MATCH_CANDIDATE',*r)
           PY

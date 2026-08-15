@@ -1,0 +1,59 @@
+name: Find visual media matches 20260815
+on:
+  push:
+    paths:
+      - '.github/workflows/find-visual-media-matches-20260815.yml'
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --force
+          git fetch --tags --force
+      - name: Compare perceptual hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pillow
+          python - <<'PY'
+          import subprocess, io, hashlib
+          from PIL import Image
+          import numpy as np
+          TARGETS={
+            'portrait':int('9d243633b32f2db3',16),
+            'certificate':int('d4cdccd4cdc554f4',16),
+          }
+          def dhash(data):
+            im=Image.open(io.BytesIO(data)).convert('L').resize((9,8),Image.Resampling.LANCZOS)
+            a=np.asarray(im)
+            bits=(a[:,1:]>a[:,:-1]).flatten()
+            v=0
+            for b in bits: v=(v<<1)|int(b)
+            return v
+          def ham(a,b): return (a^b).bit_count()
+          rows=[]; seen=set()
+          for line in subprocess.check_output(['git','rev-list','--objects','--all']).decode('utf-8','replace').splitlines():
+            p=line.split(' ',1)
+            if len(p)!=2: continue
+            sha,path=p
+            if sha in seen: continue
+            seen.add(sha)
+            if not path.lower().endswith(('.jpg','.jpeg','.png','.webp')): continue
+            try: data=subprocess.check_output(['git','cat-file','blob',sha])
+            except: continue
+            try:
+              im=Image.open(io.BytesIO(data)); dims=im.size; fmt=im.format
+              h=dhash(data)
+            except: continue
+            for kind,t in TARGETS.items():
+              d=ham(h,t)
+              rows.append((d,kind,len(data),dims,fmt,sha,path,hashlib.sha256(data).hexdigest()))
+          rows.sort(key=lambda x:(x[0],-x[2]))
+          for r in rows[:40]:
+            print('MATCH_CANDIDATE',*r)
+          PY
